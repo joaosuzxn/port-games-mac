@@ -7,6 +7,7 @@
   "exe_destino": "Cars.exe",
   "sha1_exe": "a175e49a8cd3aa67ffd71b7cf1a8d0c90b527902",
   "excluir": ["_jvm", "_uninst", "_CommonRedist", "steamapps", "THQ Website.url", "Cars.exe", "bak"],
+  "arquivos_obrigatorios": ["Data/Global.pak", "Data/UI.pak", "Data/misc.pak", "Data/Audio.pak", "Data/Scenes.pak", "Data/Act.pak", "Data/Res.pak", "binkw32.dll"],
   "rotulo_cd": "DISC2",
   "pasta_saves": "THQ",
   "renderizador": "wined3d",

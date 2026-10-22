@@ -24,7 +24,8 @@ class TestCopiarJogo(unittest.TestCase):
         (self.jogo / "THQ Website.url").write_text("x")
         (self.jogo / "binkw32.dll").write_bytes(b"bink")
         (self.jogo / "Data" / "Global.pak").write_bytes(b"pak")
-        self.receita = replace(RECEITA, sha1_exe=hashlib.sha1(b"sem drm").hexdigest())
+        self.receita = replace(RECEITA, sha1_exe=hashlib.sha1(b"sem drm").hexdigest(),
+                               arquivos_obrigatorios=("Data/Global.pak", "binkw32.dll"))
         self.destino = self.tmp / "drive_c" / "Games" / "Carros"
 
     def test_copia_sem_excluidos(self):
@@ -40,6 +41,14 @@ class TestCopiarJogo(unittest.TestCase):
         (self.jogo / "bak" / "Cars.exe").write_bytes(b"outro build")
         with self.assertRaises(JogoInvalido):
             copiar_jogo(self.jogo, self.destino, self.receita)
+        self.assertFalse(self.destino.exists())
+
+    def test_jogo_incompleto_nao_copia(self):
+        (self.jogo / "Data" / "Global.pak").unlink()
+        with self.assertRaises(JogoInvalido) as ctx:
+            copiar_jogo(self.jogo, self.destino, self.receita)
+        self.assertIn("Data/Global.pak", str(ctx.exception))
+        self.assertIn("steamcmd", str(ctx.exception))
         self.assertFalse(self.destino.exists())
 
     def test_jogo_ausente(self):

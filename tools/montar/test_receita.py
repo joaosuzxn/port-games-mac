@@ -24,6 +24,9 @@ class TestReceitaCarros(unittest.TestCase):
         self.assertEqual(r.rotulo_cd, "DISC2")
         self.assertEqual(r.pasta_saves, "THQ")
         self.assertEqual(r.renderizador, "wined3d")  # ADR 0003: 30 FPS estáveis (teto do jogo)
+        for item in ("Data/Global.pak", "Data/UI.pak", "Data/misc.pak", "Data/Audio.pak", "Data/Scenes.pak",
+                     "Data/Act.pak", "Data/Res.pak", "binkw32.dll"):
+            self.assertIn(item, r.arquivos_obrigatorios)
         for item in ("_jvm", "_uninst", "_CommonRedist", "steamapps", "THQ Website.url", "Cars.exe", "bak"):
             self.assertIn(item, r.excluir)
 
@@ -65,6 +68,23 @@ class TestReceitaInvalida(unittest.TestCase):
         caminho = self._gravar(lambda d: d.update(sha1_exe="abc123"))
         with self.assertRaises(ReceitaInvalida):
             carregar_receita(caminho)
+
+    def test_arquivos_obrigatorios_opcional(self):
+        r = carregar_receita(self._gravar(lambda d: d.pop("arquivos_obrigatorios")))
+        self.assertEqual(r.arquivos_obrigatorios, ())
+
+    def test_arquivos_obrigatorios_nao_pode_sair_da_pasta(self):
+        for ruim in ("../x", "/etc/passwd"):
+            caminho = self._gravar(lambda d: d.update(arquivos_obrigatorios=[ruim]))
+            with self.assertRaises(ReceitaInvalida):
+                carregar_receita(caminho)
+
+    def test_dword_fora_da_faixa(self):
+        for ruim in (-1, 0x1_0000_0000):
+            caminho = self._gravar(lambda d: d["registro"].append(
+                {"colmeia": "user", "chave": "A", "valores": {"x": ruim}}))
+            with self.assertRaises(ReceitaInvalida):
+                carregar_receita(caminho)
 
 
 if __name__ == "__main__":

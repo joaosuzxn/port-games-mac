@@ -37,6 +37,7 @@ class Receita:
     pasta_saves: str | None
     renderizador: Literal["d9vk", "wined3d", "d3dmetal"]
     registro: tuple
+    arquivos_obrigatorios: tuple = ()
 
 
 def _exigir(dados: dict, campo: str, tipo, opcional: bool = False):
@@ -60,6 +61,8 @@ def _ler_chave(item: dict) -> ChaveRegistro:
     for nome, v in valores.items():
         if isinstance(v, bool) or not isinstance(v, (str, int)):
             raise ReceitaInvalida(f"registro.valores.{nome} deve ser texto ou inteiro")
+        if isinstance(v, int) and not 0 <= v <= 0xFFFFFFFF:
+            raise ReceitaInvalida(f"registro.valores.{nome} fora da faixa de um dword (0 a 4294967295)")
     return ChaveRegistro(colmeia, _exigir(item, "chave", str), dict(valores))
 
 
@@ -78,6 +81,11 @@ def carregar_receita(caminho: Path) -> Receita:
     if renderizador not in RENDERIZADORES:
         raise ReceitaInvalida(f"campo renderizador inválido: {renderizador} (use {', '.join(RENDERIZADORES)})")
 
+    obrigatorios = _exigir(dados, "arquivos_obrigatorios", list, opcional=True) or []
+    for item in obrigatorios:
+        if not isinstance(item, str) or not item or item.startswith("/") or ".." in Path(item).parts:
+            raise ReceitaInvalida(f"arquivos_obrigatorios: caminho inválido (use relativo à pasta do jogo): {item!r}")
+
     return Receita(
         nome=_exigir(dados, "nome", str),
         nome_app=_exigir(dados, "nome_app", str),
@@ -91,4 +99,5 @@ def carregar_receita(caminho: Path) -> Receita:
         pasta_saves=_exigir(dados, "pasta_saves", str, opcional=True),
         renderizador=renderizador,
         registro=tuple(_ler_chave(i) for i in _exigir(dados, "registro", list)),
+        arquivos_obrigatorios=tuple(obrigatorios),
     )

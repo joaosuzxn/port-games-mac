@@ -89,6 +89,12 @@ def conferir_jogo(origem: Path, receita: Receita) -> None:
             f"{exe} não é o build esperado (SHA-1 diferente de {receita.sha1_exe}). "
             f"Baixe de novo com: {COMANDO_STEAMCMD}"
         )
+    faltando = [a for a in receita.arquivos_obrigatorios if not (origem / a).is_file()]
+    if faltando:
+        raise JogoInvalido(
+            f"jogo incompleto em {origem} (faltam: {', '.join(faltando)}). "
+            f"Baixe/valide com: {COMANDO_STEAMCMD}"
+        )
 
 
 def copiar_jogo(origem: Path, destino: Path, receita: Receita) -> None:
