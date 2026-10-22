@@ -24,7 +24,7 @@ Todo pedido segue PENSAR → PRIORIZAR → FAZER → CATALOGAR, sem pular etapa:
 
 ## Fluxo de desenvolvimento — UMA SESSÃO
 
-O Claude commita nas feature branches. Não há remoto configurado; push só com autorização explícita.
+O Claude commita nas feature branches. Remoto `origin` = github.com/joaosuzxn/port-games-mac; push só com autorização explícita do dono.
 
     git checkout main
     git checkout -b feat/<slug>          # ou fix/ | refactor/ | chore/
