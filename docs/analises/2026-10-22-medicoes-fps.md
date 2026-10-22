@@ -17,3 +17,15 @@ WineD3D pelo canal `fps` do Wine (`WINEDEBUG=-all,fps`, uma amostra por ~1 s, ú
 - CPU com D9VK: ~70% somados entre threads, nenhuma em 100% (medição no menu, não conclusiva).
 - D3DMetal não testado: no Sikarugir cobre só Direct3D 11/12; o jogo é Direct3D 9.
 - O HUD do Metal não aparece com WineD3D (OpenGL), nem com `MTL_HUD_ENABLED=1`.
+
+## Tentativa de 60 FPS (backlog #5, descartada pelo dono)
+
+- A configuração de VSync vem de `data\Debug\config.txt` dentro de `Data/misc.pak` (`[General] VSync=30hz`), lida pela
+  função em `0x58b730` (`VSync`, padrão `"30Hz"`; `30Hz`→modo 1, `60Hz`→modo 2, outro→desligado; objeto em `[0x7c6394]+0x10`).
+- Formato `.pak`: `u32 n` + `n × (nome[100], u32 offset, u32 tamanho)`; offsets relativos ao fim da tabela (`4 + n×108`).
+- O jogo procura cada `.pak` primeiro na raiz (`D:\misc.pak`) e depois em `data\`: uma cópia na raiz é usada no lugar.
+- Mesmo com a cópia na raiz (`VSync=60hz`, `PrintFPS=T`) nada mudou: o executável final **não aplica** o `config.txt`
+  e usa o padrão do código (`30Hz`).
+- Único caminho restante: trocar 4 bytes numa cópia do `Cars.exe` (operando do `push 0x7399c4` em `0x58b831` →
+  `0x7399a4`, texto `"60Hz"`). O dono preferiu manter 30 FPS e não modificar o executável (2026-10-22).
+- O WineD3D apresenta com `swap_interval` padrão do swapchain; o jogo cria o back buffer no tamanho da tela (1470×956).
