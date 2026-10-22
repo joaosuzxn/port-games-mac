@@ -12,6 +12,7 @@
   "renderizador": "wined3d",
   "registro": [
     {"colmeia": "system", "chave": "Software\\Wine\\Drives", "valores": {"d:": "cdrom"}},
+    {"colmeia": "system", "chave": "System\\ControlSet001\\Services\\winebus", "valores": {"Enable SDL": 1, "Map Controllers": 1}},
     {"colmeia": "user", "chave": "Software\\Wine\\X11 Driver", "valores": {"EmulateModeset": "y"}},
     {"colmeia": "user", "chave": "Software\\THQ\\Cars\\Settings\\Display", "valores": {"Resolution": 14, "MultiSampleType": 4, "FullscreenEffects": 1}}
   ]

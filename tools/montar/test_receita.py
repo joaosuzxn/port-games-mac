@@ -32,6 +32,9 @@ class TestReceitaCarros(unittest.TestCase):
         # tela cheia: emulação de troca de resolução, sem área de trabalho virtual (ADR 0002)
         self.assertIn(ChaveRegistro("user", r"Software\Wine\X11 Driver", {"EmulateModeset": "y"}), self.r.registro)
         self.assertFalse(any(c.chave.startswith(r"Software\Wine\Explorer") for c in self.r.registro))
+        # controles (ControlSet001: CurrentControlSet é link no system.reg): backend SDL do Wine, layout Xbox para qualquer controle reconhecido pelo SDL
+        self.assertIn(ChaveRegistro("system", r"System\ControlSet001\Services\winebus",
+                                    {"Enable SDL": 1, "Map Controllers": 1}), self.r.registro)
         # vídeo do jogo: 1600x1200 (índice 14), MSAA 4x, efeitos ligados — medido a 30 FPS estáveis
         self.assertIn(ChaveRegistro("user", r"Software\THQ\Cars\Settings\Display",
                                     {"Resolution": 14, "MultiSampleType": 4, "FullscreenEffects": 1}), self.r.registro)
