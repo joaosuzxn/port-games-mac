@@ -1,29 +1,48 @@
-// CLI do backlog do port do Carros. Node puro, sem dependências.
-// Uso: node tools/backlog/backlog.mjs <new|set|list|next|board|check> [...]
-// Regras dos campos em docs/backlog/README.md.
+// Backlog CLI for the Carros port. Plain Node, no dependencies.
+// Usage: node tools/backlog/backlog.mjs <new|set|list|next|board|check> [...]
+// Field rules in docs/backlog/README.md.
+//
+// Data format (frontmatter fields, their values, body sections) and command-line
+// parameters keep the Portuguese names documented in docs/backlog/README.md; the
+// item properties read from the frontmatter (titulo, tipo, urgencia...) are named after them.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const raiz = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const dirItens = path.join(raiz, 'docs', 'backlog', 'itens');
-const arqQuadro = path.join(raiz, 'docs', 'backlog', 'BACKLOG.md');
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+const itemsDir = path.join(root, 'docs', 'backlog', 'itens');
+const boardFile = path.join(root, 'docs', 'backlog', 'BACKLOG.md');
 
-const TIPOS = ['bug', 'melhoria', 'ideia', 'feature', 'tarefa'];
-const URGENCIAS = ['P0', 'P1', 'P2', 'P3'];
-const STATUS = ['aberto', 'em-andamento', 'feito', 'descartado'];
-const VALIDACOES = [null, 'pendente', 'ok'];
-const MODULOS = ['jogo', 'wine', 'app', 'docs', 'infra'];
-const CAMPOS = ['id', 'titulo', 'tipo', 'urgencia', 'status', 'modulos', 'criado', 'iniciado', 'concluido', 'commits', 'relacionados', 'validacao'];
-const LISTAS = new Set(['modulos', 'commits', 'relacionados']);
-const SECOES = ['## Contexto', '## Como reproduzir', '## Proposta', '## Notas de execução'];
+const TYPES = ['bug', 'melhoria', 'ideia', 'feature', 'tarefa'];
+const PRIORITIES = ['P0', 'P1', 'P2', 'P3'];
+const STATUSES = ['aberto', 'em-andamento', 'feito', 'descartado'];
+const VALIDATIONS = [null, 'pendente', 'ok'];
+const MODULES = ['jogo', 'wine', 'app', 'docs', 'infra'];
+const FIELDS = ['id', 'titulo', 'tipo', 'urgencia', 'status', 'modulos', 'criado', 'iniciado', 'concluido', 'commits', 'relacionados', 'validacao'];
+const LIST_FIELDS = new Set(['modulos', 'commits', 'relacionados']);
+const SECTIONS = ['## Contexto', '## Como reproduzir', '## Proposta', '## Notas de execução'];
 
-const hoje = () => new Date().toLocaleDateString('sv-SE');
-const falhar = (msg) => { console.error(msg); process.exit(1); };
+// Text of the generated board (docs/backlog/BACKLOG.md) and of the item line printed by
+// list/next/board. It is documentation content, so it stays in Portuguese.
+const TEXT = {
+  boardTitle: '# Backlog — Port do Carros',
+  boardNote: (date) => `> Gerado por \`backlog board\` em ${date}. Não editar à mão: edite os itens em \`itens/\` e gere de novo.`,
+  now: 'Agora',
+  nextCycle: 'Próximo ciclo',
+  whenPossible: 'Quando der',
+  awaiting: 'Aguardando o dono testar',
+  empty: '(vazio)',
+  inProgressSince: 'em andamento desde',
+  doneOn: 'feito em',
+  daysAgo: (days) => `há ${days} dias`,
+};
 
-// --- frontmatter (subconjunto de YAML: escalar, "string", null, [a, b]) ---------
-function lerValor(bruto) {
-  const s = bruto.trim();
+const today = () => new Date().toLocaleDateString('sv-SE');
+const fail = (msg) => { console.error(msg); process.exit(1); };
+
+// --- frontmatter (subset of YAML: scalar, "string", null, [a, b]) ---------------
+function parseValue(raw) {
+  const s = raw.trim();
   if (s === '' || s === 'null') return null;
   if (s.startsWith('[')) {
     return s.slice(1, -1).split(',').map((x) => x.trim()).filter(Boolean)
@@ -33,67 +52,67 @@ function lerValor(bruto) {
   return s;
 }
 
-function escreverValor(chave, v) {
+function formatValue(key, v) {
   if (v === null || v === undefined) return 'null';
   if (Array.isArray(v)) return '[' + v.map((x) => (/^[\w.-]+$/.test(String(x)) ? x : JSON.stringify(String(x)))).join(', ') + ']';
-  if (chave === 'titulo') return JSON.stringify(v);
+  if (key === 'titulo') return JSON.stringify(v);
   return /^[\w.-]+$/.test(String(v)) ? String(v) : JSON.stringify(String(v));
 }
 
-function lerItens() {
-  if (!fs.existsSync(dirItens)) return [];
-  return fs.readdirSync(dirItens).filter((f) => /^\d{4}-.*\.md$/.test(f)).sort().map((arquivo) => {
-    const txt = fs.readFileSync(path.join(dirItens, arquivo), 'utf8');
-    const m = txt.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
-    if (!m) falhar(`${arquivo}: sem frontmatter`);
-    const item = { arquivo, corpo: m[2] };
-    for (const linha of m[1].split('\n')) {
-      const c = linha.match(/^(\w+):\s*(.*)$/);
-      if (c) item[c[1]] = lerValor(c[2]);
+function readItems() {
+  if (!fs.existsSync(itemsDir)) return [];
+  return fs.readdirSync(itemsDir).filter((f) => /^\d{4}-.*\.md$/.test(f)).sort().map((file) => {
+    const text = fs.readFileSync(path.join(itemsDir, file), 'utf8');
+    const m = text.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
+    if (!m) fail(`${file}: no frontmatter`);
+    const item = { file, body: m[2] };
+    for (const line of m[1].split('\n')) {
+      const c = line.match(/^(\w+):\s*(.*)$/);
+      if (c) item[c[1]] = parseValue(c[2]);
     }
     item.id = Number(item.id);
     return item;
   });
 }
 
-function gravar(item) {
-  const fm = CAMPOS.map((c) => `${c}: ${escreverValor(c, item[c])}`).join('\n');
-  fs.writeFileSync(path.join(dirItens, item.arquivo), `---\n${fm}\n---\n${item.corpo}`, 'utf8');
+function writeItem(item) {
+  const fm = FIELDS.map((c) => `${c}: ${formatValue(c, item[c])}`).join('\n');
+  fs.writeFileSync(path.join(itemsDir, item.file), `---\n${fm}\n---\n${item.body}`, 'utf8');
 }
 
 const slug = (t) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
   .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 50).replace(/-$/, '');
 
-const diasDesde = (data) => Math.max(0, Math.round((Date.now() - new Date(data + 'T00:00:00')) / 86400e3));
+const daysSince = (date) => Math.max(0, Math.round((Date.now() - new Date(date + 'T00:00:00')) / 86400e3));
 
-function linha(it) {
+function formatLine(it) {
   const base = `#${it.id} · ${it.tipo} · ${it.urgencia} · ${(it.modulos ?? []).join(', ')} · ${it.titulo}`;
-  if (it.status === 'em-andamento') return `${base} · em andamento desde ${it.iniciado}`;
-  if (it.status === 'feito') return `${base} · feito em ${it.concluido}${it.commits?.length ? ' · ' + it.commits.join(', ') : ''}`;
-  return `${base} · há ${diasDesde(it.criado)} dias`;
+  if (it.status === 'em-andamento') return `${base} · ${TEXT.inProgressSince} ${it.iniciado}`;
+  if (it.status === 'feito') return `${base} · ${TEXT.doneOn} ${it.concluido}${it.commits?.length ? ' · ' + it.commits.join(', ') : ''}`;
+  return `${base} · ${TEXT.daysAgo(daysSince(it.criado))}`;
 }
 
-const ativos = (itens) => itens.filter((i) => i.status === 'aberto' || i.status === 'em-andamento');
-const aguardando = (itens) => itens.filter((i) => i.status === 'feito' && i.validacao === 'pendente');
-const porUrgencia = (a, b) => URGENCIAS.indexOf(a.urgencia) - URGENCIAS.indexOf(b.urgencia) || a.id - b.id;
+const active = (items) => items.filter((i) => i.status === 'aberto' || i.status === 'em-andamento');
+const awaitingValidation = (items) => items.filter((i) => i.status === 'feito' && i.validacao === 'pendente');
+const byPriority = (a, b) => PRIORITIES.indexOf(a.urgencia) - PRIORITIES.indexOf(b.urgencia) || a.id - b.id;
 
-// --- comandos ---------------------------------------------------------------------
-function quadro(itens = lerItens()) {
-  const L = ['# Backlog — Port do Carros', '', `> Gerado por \`backlog board\` em ${hoje()}. Não editar à mão: edite os itens em \`itens/\` e gere de novo.`, ''];
-  const secao = (titulo, lista) => {
-    L.push(`## ${titulo}`);
-    L.push(...(lista.length ? lista.map((i) => `- ${linha(i)}`) : ['- (vazio)']));
-    L.push('');
+// --- commands ---------------------------------------------------------------------
+function writeBoard(items = readItems()) {
+  const lines = [TEXT.boardTitle, '', TEXT.boardNote(today()), ''];
+  const section = (title, list) => {
+    lines.push(`## ${title}`);
+    lines.push(...(list.length ? list.map((i) => `- ${formatLine(i)}`) : [`- ${TEXT.empty}`]));
+    lines.push('');
   };
-  const a = ativos(itens).sort((x, y) => x.id - y.id);
-  secao('Agora', a.filter((i) => i.urgencia === 'P0' || i.urgencia === 'P1'));
-  secao('Próximo ciclo', a.filter((i) => i.urgencia === 'P2'));
-  secao('Quando der', a.filter((i) => i.urgencia === 'P3'));
-  secao('Aguardando o dono testar', aguardando(itens));
-  fs.writeFileSync(arqQuadro, L.join('\n'), 'utf8');
+  const a = active(items).sort((x, y) => x.id - y.id);
+  section(TEXT.now, a.filter((i) => i.urgencia === 'P0' || i.urgencia === 'P1'));
+  section(TEXT.nextCycle, a.filter((i) => i.urgencia === 'P2'));
+  section(TEXT.whenPossible, a.filter((i) => i.urgencia === 'P3'));
+  section(TEXT.awaiting, awaitingValidation(items));
+  fs.writeFileSync(boardFile, lines.join('\n'), 'utf8');
 }
 
-function opcoes(args) {
+function parseOptions(args) {
   const o = {};
   for (let i = 0; i < args.length; i++) {
     if (args[i].startsWith('--')) o[args[i].slice(2)] = args[i + 1] ?? '', i++;
@@ -102,109 +121,109 @@ function opcoes(args) {
 }
 
 function cmdNew(args) {
-  const o = opcoes(args);
-  for (const c of ['titulo', 'tipo', 'urgencia', 'modulos']) if (!o[c]) falhar(`new: falta --${c}`);
-  const itens = lerItens();
-  const id = Math.max(0, ...itens.map((i) => i.id)) + 1;
+  const o = parseOptions(args);
+  for (const c of ['titulo', 'tipo', 'urgencia', 'modulos']) if (!o[c]) fail(`new: missing --${c}`);
+  const items = readItems();
+  const id = Math.max(0, ...items.map((i) => i.id)) + 1;
   const item = {
     id, titulo: o.titulo, tipo: o.tipo, urgencia: o.urgencia, status: 'aberto',
-    modulos: o.modulos.split(',').map((x) => x.trim()), criado: hoje(), iniciado: null, concluido: null,
+    modulos: o.modulos.split(',').map((x) => x.trim()), criado: today(), iniciado: null, concluido: null,
     commits: [], relacionados: o.relacionados ? o.relacionados.split(',').map((x) => x.trim()) : [], validacao: null,
-    arquivo: `${String(id).padStart(4, '0')}-${slug(o.titulo)}.md`,
-    corpo: SECOES.map((s) => `${s}\n\n`).join(''),
+    file: `${String(id).padStart(4, '0')}-${slug(o.titulo)}.md`,
+    body: SECTIONS.map((s) => `${s}\n\n`).join(''),
   };
-  const erros = validar(item, false);
-  if (erros.length) falhar(`new: ${erros.join('; ')}`);
-  gravar(item);
-  quadro();
-  console.log(`#${id} · docs/backlog/itens/${item.arquivo}`);
+  const errors = validate(item, false);
+  if (errors.length) fail(`new: ${errors.join('; ')}`);
+  writeItem(item);
+  writeBoard();
+  console.log(`#${id} · docs/backlog/itens/${item.file}`);
 }
 
 function cmdSet(args) {
-  const [idTxt, ...pares] = args;
-  const itens = lerItens();
-  const item = itens.find((i) => i.id === Number(idTxt));
-  if (!item) falhar(`set: item #${idTxt} não existe`);
-  for (const par of pares) {
-    const k = par.indexOf('=');
-    if (k < 1) falhar(`set: use campo=valor (recebi "${par}")`);
-    const campo = par.slice(0, k);
-    const valor = par.slice(k + 1);
-    if (campo === 'nota') {
-      item.corpo = item.corpo.replace(/\s*$/, '') + `\n${hoje()}: ${valor}\n`;
+  const [idText, ...pairs] = args;
+  const items = readItems();
+  const item = items.find((i) => i.id === Number(idText));
+  if (!item) fail(`set: item #${idText} does not exist`);
+  for (const pair of pairs) {
+    const k = pair.indexOf('=');
+    if (k < 1) fail(`set: use field=value (got "${pair}")`);
+    const field = pair.slice(0, k);
+    const value = pair.slice(k + 1);
+    if (field === 'nota') {
+      item.body = item.body.replace(/\s*$/, '') + `\n${today()}: ${value}\n`;
       continue;
     }
-    if (!CAMPOS.includes(campo) || campo === 'id') falhar(`set: campo desconhecido "${campo}"`);
-    if (LISTAS.has(campo)) {
-      item[campo] = valor.startsWith('+')
-        ? [...(item[campo] ?? []), ...valor.slice(1).split(',').map((x) => x.trim()).filter(Boolean)]
-        : valor.split(',').map((x) => x.trim()).filter(Boolean);
+    if (!FIELDS.includes(field) || field === 'id') fail(`set: unknown field "${field}"`);
+    if (LIST_FIELDS.has(field)) {
+      item[field] = value.startsWith('+')
+        ? [...(item[field] ?? []), ...value.slice(1).split(',').map((x) => x.trim()).filter(Boolean)]
+        : value.split(',').map((x) => x.trim()).filter(Boolean);
     } else {
-      item[campo] = valor === '' || valor === 'null' ? null : valor;
+      item[field] = value === '' || value === 'null' ? null : value;
     }
-    if (campo === 'status' && valor === 'em-andamento' && !item.iniciado) item.iniciado = hoje();
-    if (campo === 'status' && valor === 'feito' && !item.concluido) item.concluido = hoje();
+    if (field === 'status' && value === 'em-andamento' && !item.iniciado) item.iniciado = today();
+    if (field === 'status' && value === 'feito' && !item.concluido) item.concluido = today();
   }
-  const erros = validar(item, false);
-  if (erros.length) falhar(`set: ${erros.join('; ')}`);
-  gravar(item);
-  quadro();
-  console.log(linha(item));
+  const errors = validate(item, false);
+  if (errors.length) fail(`set: ${errors.join('; ')}`);
+  writeItem(item);
+  writeBoard();
+  console.log(formatLine(item));
 }
 
 function cmdList(args) {
-  const o = opcoes(args);
-  const em = (v, filtro) => !filtro || filtro.split(',').includes(v);
-  const itens = lerItens().filter((i) =>
-    em(i.status, o.status) && em(i.tipo, o.tipo) && em(i.urgencia, o.urgencia) &&
-    em(i.validacao ?? '', o.validacao) && (!o.modulo || (i.modulos ?? []).includes(o.modulo)));
-  if (!itens.length) console.log('(nenhum item)');
-  for (const i of itens.sort(porUrgencia)) console.log(linha(i));
+  const o = parseOptions(args);
+  const matches = (v, filter) => !filter || filter.split(',').includes(v);
+  const items = readItems().filter((i) =>
+    matches(i.status, o.status) && matches(i.tipo, o.tipo) && matches(i.urgencia, o.urgencia) &&
+    matches(i.validacao ?? '', o.validacao) && (!o.modulo || (i.modulos ?? []).includes(o.modulo)));
+  if (!items.length) console.log('(no items)');
+  for (const i of items.sort(byPriority)) console.log(formatLine(i));
 }
 
 function cmdNext() {
-  const itens = lerItens();
-  const fila = ativos(itens).sort(porUrgencia);
-  console.log(fila.length ? fila.map(linha).join('\n') : '(fila vazia)');
-  const pend = aguardando(itens);
-  if (pend.length) console.log('\nAguardando o dono testar:\n' + pend.map(linha).join('\n'));
+  const items = readItems();
+  const queue = active(items).sort(byPriority);
+  console.log(queue.length ? queue.map(formatLine).join('\n') : '(queue empty)');
+  const pending = awaitingValidation(items);
+  if (pending.length) console.log(`\n${TEXT.awaiting}:\n` + pending.map(formatLine).join('\n'));
 }
 
-function validar(it, completo) {
+function validate(it, full) {
   const e = [];
-  if (!it.titulo) e.push('sem titulo');
-  if (!TIPOS.includes(it.tipo)) e.push(`tipo inválido "${it.tipo}"`);
-  if (!URGENCIAS.includes(it.urgencia)) e.push(`urgencia inválida "${it.urgencia}"`);
-  if (!STATUS.includes(it.status)) e.push(`status inválido "${it.status}"`);
-  if (!VALIDACOES.includes(it.validacao)) e.push(`validacao inválida "${it.validacao}"`);
-  if (!it.modulos?.length) e.push('sem modulos');
-  for (const m of it.modulos ?? []) if (!MODULOS.includes(m)) e.push(`modulo desconhecido "${m}"`);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(it.criado ?? '')) e.push('criado inválido');
-  if (it.status === 'feito' && !it.concluido) e.push('feito sem concluido');
-  if (!completo) return e;
-  if (!it.arquivo.startsWith(String(it.id).padStart(4, '0') + '-')) e.push('id diferente do prefixo do arquivo');
-  const posicoes = SECOES.map((s) => it.corpo.indexOf(s));
-  if (posicoes.some((p) => p < 0)) e.push('faltam seções do corpo');
-  else if (posicoes.some((p, i) => i && p < posicoes[i - 1])) e.push('seções fora de ordem');
+  if (!it.titulo) e.push('missing titulo');
+  if (!TYPES.includes(it.tipo)) e.push(`invalid tipo "${it.tipo}"`);
+  if (!PRIORITIES.includes(it.urgencia)) e.push(`invalid urgencia "${it.urgencia}"`);
+  if (!STATUSES.includes(it.status)) e.push(`invalid status "${it.status}"`);
+  if (!VALIDATIONS.includes(it.validacao)) e.push(`invalid validacao "${it.validacao}"`);
+  if (!it.modulos?.length) e.push('missing modulos');
+  for (const m of it.modulos ?? []) if (!MODULES.includes(m)) e.push(`unknown modulo "${m}"`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(it.criado ?? '')) e.push('invalid criado');
+  if (it.status === 'feito' && !it.concluido) e.push('feito without concluido');
+  if (!full) return e;
+  if (!it.file.startsWith(String(it.id).padStart(4, '0') + '-')) e.push('id differs from the file name prefix');
+  const positions = SECTIONS.map((s) => it.body.indexOf(s));
+  if (positions.some((p) => p < 0)) e.push('body sections missing');
+  else if (positions.some((p, i) => i && p < positions[i - 1])) e.push('body sections out of order');
   else {
-    const secao = (n) => it.corpo.slice(posicoes[n] + SECOES[n].length, posicoes[n + 1] ?? undefined).trim();
-    if (it.tipo === 'bug' && !secao(1)) e.push('bug sem "Como reproduzir"');
-    if (it.status === 'descartado' && !secao(3)) e.push('descartado sem nota de motivo');
+    const section = (n) => it.body.slice(positions[n] + SECTIONS[n].length, positions[n + 1] ?? undefined).trim();
+    if (it.tipo === 'bug' && !section(1)) e.push('bug without "Como reproduzir"');
+    if (it.status === 'descartado' && !section(3)) e.push('descartado without a reason note');
   }
   return e;
 }
 
 function cmdCheck() {
-  let erros = 0;
-  for (const it of lerItens()) {
-    const e = validar(it, true);
-    if (e.length) { erros++; console.log(`✗ ${it.arquivo}: ${e.join('; ')}`); }
+  let failures = 0;
+  for (const it of readItems()) {
+    const e = validate(it, true);
+    if (e.length) { failures++; console.log(`✗ ${it.file}: ${e.join('; ')}`); }
   }
-  console.log(erros ? `${erros} item(ns) com problema` : '✓ backlog ok');
-  process.exit(erros ? 1 : 0);
+  console.log(failures ? `${failures} item(s) with problems` : '✓ backlog ok');
+  process.exit(failures ? 1 : 0);
 }
 
-const [cmd, ...resto] = process.argv.slice(2);
-const comandos = { new: cmdNew, set: cmdSet, list: cmdList, next: cmdNext, board: () => quadro(), check: cmdCheck };
-if (!comandos[cmd]) falhar('Uso: backlog.mjs <new|set|list|next|board|check> — ver docs/backlog/README.md');
-comandos[cmd](resto);
+const [cmd, ...rest] = process.argv.slice(2);
+const commands = { new: cmdNew, set: cmdSet, list: cmdList, next: cmdNext, board: () => writeBoard(), check: cmdCheck };
+if (!commands[cmd]) fail('Usage: backlog.mjs <new|set|list|next|board|check> — see docs/backlog/README.md');
+commands[cmd](rest);
