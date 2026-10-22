@@ -17,3 +17,6 @@ __pycache__/
 
 # Rascunhos e ledger do Superpowers (locais)
 .superpowers/
+
+# Jogos de teste baixados (proprietários) — nunca versionar
+jogos/
