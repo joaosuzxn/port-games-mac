@@ -1,6 +1,6 @@
-/* SPIKE (descartável) — baseado em src/steam_stub.c do Neutron
- * (https://github.com/mont127/Neutron, Apache License 2.0, (c) os autores do Neutron).
- * Alteração: texto da mensagem de identificação. */
+/* SPIKE (disposable) — based on src/steam_stub.c from Neutron
+ * (https://github.com/mont127/Neutron, Apache License 2.0, (c) the Neutron authors).
+ * Change: text of the identification message. */
 /* stand-in for the windows steam.exe. games and steam_api64.dll check the
  * registry for a live steam process before they will init; this writes that
  * state and stays resident so the pid keeps resolving while a game runs.
