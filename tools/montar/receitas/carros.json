@@ -12,7 +12,6 @@
   "renderizador": "d9vk",
   "registro": [
     {"colmeia": "system", "chave": "Software\\Wine\\Drives", "valores": {"d:": "cdrom"}},
-    {"colmeia": "user", "chave": "Software\\Wine\\Explorer", "valores": {"Desktop": "Default"}},
-    {"colmeia": "user", "chave": "Software\\Wine\\Explorer\\Desktops", "valores": {"Default": "1280x720"}}
+    {"colmeia": "user", "chave": "Software\\Wine\\X11 Driver", "valores": {"EmulateModeset": "y"}}
   ]
 }

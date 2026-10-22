@@ -49,7 +49,7 @@ o jogo abre em tela cheia e ele joga com um controle. O que o incomoda nas solu�
 |---|---|
 | `Cars.exe` da Steam tem SteamStub; `bak/Cars.exe` é o mesmo build sem DRM | Usar `bak/Cars.exe` como executável do jogo dentro do app |
 | `bak/Cars.exe` exige drive tipo CD com rótulo de volume `DISC2` | Drive `D:` = pasta do jogo, tipo `cdrom` no registro, `.windows-label` = `DISC2` |
-| Troca de resolução em tela cheia é recusada pelo macOS e o jogo quebra | Rodar na área de trabalho virtual do Wine; para tela cheia, área virtual do tamanho da tela |
+| Troca de resolução em tela cheia é recusada pelo macOS e o jogo quebra | `EmulateModeset` do Wine (ADR 0002); a área virtual do teste foi abandonada |
 | 32 bits, Direct3D 9, DirectSound, DirectInput 8, Bink | Wine com WoW64; camada D3D9 (D9VK funcionou; WineD3D criou o device) |
 | Funcionou: wrapper Sikarugir template 1.0.24 + engine WS12WineSikarugir 11.0_1 + D9VK | Ponto de partida conhecido-bom |
 | A janela Configure regrava o `Info.plist` | O app final não deve expor nem depender dela |

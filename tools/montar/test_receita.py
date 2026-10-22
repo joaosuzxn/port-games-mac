@@ -29,7 +29,9 @@ class TestReceitaCarros(unittest.TestCase):
 
     def test_registro_carros(self):
         self.assertIn(ChaveRegistro("system", r"Software\Wine\Drives", {"d:": "cdrom"}), self.r.registro)
-        self.assertIn(ChaveRegistro("user", r"Software\Wine\Explorer", {"Desktop": "Default"}), self.r.registro)
+        # tela cheia: emulação de troca de resolução, sem área de trabalho virtual (ADR 0002)
+        self.assertIn(ChaveRegistro("user", r"Software\Wine\X11 Driver", {"EmulateModeset": "y"}), self.r.registro)
+        self.assertFalse(any(c.chave.startswith(r"Software\Wine\Explorer") for c in self.r.registro))
 
 
 class TestReceitaInvalida(unittest.TestCase):
