@@ -1,0 +1,18 @@
+{
+  "nome": "carros",
+  "nome_app": "Carros",
+  "bundle_id": "local.portcarros.carros",
+  "pasta_jogo": "jogo",
+  "exe_origem": "bak/Cars.exe",
+  "exe_destino": "Cars.exe",
+  "sha1_exe": "a175e49a8cd3aa67ffd71b7cf1a8d0c90b527902",
+  "excluir": ["_jvm", "_uninst", "_CommonRedist", "steamapps", "THQ Website.url", "Cars.exe", "bak"],
+  "rotulo_cd": "DISC2",
+  "pasta_saves": "THQ",
+  "renderizador": "d9vk",
+  "registro": [
+    {"colmeia": "system", "chave": "Software\\Wine\\Drives", "valores": {"d:": "cdrom"}},
+    {"colmeia": "user", "chave": "Software\\Wine\\Explorer", "valores": {"Desktop": "Default"}},
+    {"colmeia": "user", "chave": "Software\\Wine\\Explorer\\Desktops", "valores": {"Default": "1280x720"}}
+  ]
+}
