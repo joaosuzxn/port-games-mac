@@ -3,14 +3,14 @@ id: 4
 titulo: "FPS baixo no teste com D9VK dentro do Wine"
 tipo: bug
 urgencia: P2
-status: aberto
+status: feito
 modulos: [wine]
 criado: 2026-10-22
 iniciado: null
-concluido: null
-commits: []
+concluido: 2026-10-22
+commits: [90778b0]
 relacionados: [2]
-validacao: null
+validacao: pendente
 ---
 ## Contexto
 
