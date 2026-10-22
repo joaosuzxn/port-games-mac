@@ -3,7 +3,7 @@
 > Gerado por `backlog board` em 2026-10-22. Não editar à mão: edite os itens em `itens/` e gere de novo.
 
 ## Agora
-- #7 · tarefa · P1 · wine, infra · Spike: ponte dos jogos Windows com a Steam nativa do Mac (lsteamclient) · há 1 dias
+- #7 · tarefa · P1 · wine, infra · Spike: ponte dos jogos Windows com a Steam nativa do Mac (lsteamclient) · em andamento desde 2026-10-22
 
 ## Próximo ciclo
 - #3 · feature · P2 · app, wine, infra · Generalizar: transformar vários jogos Windows da Steam em .app no Mac · há 1 dias
