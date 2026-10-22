@@ -3,7 +3,7 @@
 > Gerado por `backlog board` em 2026-10-22. Não editar à mão: edite os itens em `itens/` e gere de novo.
 
 ## Agora
-- #7 · tarefa · P1 · wine, infra · Spike: ponte dos jogos Windows com a Steam nativa do Mac (lsteamclient) · em andamento desde 2026-10-22
+- (vazio)
 
 ## Próximo ciclo
 - #3 · feature · P2 · app, wine, infra · Generalizar: transformar vários jogos Windows da Steam em .app no Mac · há 1 dias
@@ -13,7 +13,7 @@
 - #10 · feature · P2 · jogo, wine · Receita do Red Dead Redemption 2 (Vulkan, Rockstar Launcher) · há 1 dias
 
 ## Quando der
-- (vazio)
+- #11 · bug · P3 · wine, infra · Criar prefixo trava se outro app com Wine estiver aberto · há 1 dias
 
 ## Aguardando o dono testar
 - #4 · bug · P2 · wine · FPS baixo no teste com D9VK dentro do Wine · feito em 2026-10-22 · 90778b0

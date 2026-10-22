@@ -1,0 +1,63 @@
+{
+  "nome": "carros-steam",
+  "nome_app": "CarrosSteam",
+  "bundle_id": "local.portcarros.carros-steam",
+  "pasta_jogo": "jogo",
+  "exe_origem": "Cars.exe",
+  "exe_destino": "Cars.exe",
+  "sha1_exe": "d4a2f16e033ef096607404509efd5d3540eabf8e",
+  "excluir": [
+    "_jvm",
+    "_uninst",
+    "_CommonRedist",
+    "steamapps",
+    "THQ Website.url",
+    "bak"
+  ],
+  "arquivos_obrigatorios": [
+    "Data/Global.pak",
+    "Data/UI.pak",
+    "Data/misc.pak",
+    "Data/Audio.pak",
+    "Data/Scenes.pak",
+    "Data/Act.pak",
+    "Data/Res.pak",
+    "binkw32.dll"
+  ],
+  "rotulo_cd": "DISC2",
+  "pasta_saves": "THQ",
+  "renderizador": "wined3d",
+  "registro": [
+    {
+      "colmeia": "system",
+      "chave": "Software\\Wine\\Drives",
+      "valores": {
+        "d:": "cdrom"
+      }
+    },
+    {
+      "colmeia": "system",
+      "chave": "System\\ControlSet001\\Services\\winebus",
+      "valores": {
+        "Enable SDL": 1,
+        "Map Controllers": 1
+      }
+    },
+    {
+      "colmeia": "user",
+      "chave": "Software\\Wine\\X11 Driver",
+      "valores": {
+        "EmulateModeset": "y"
+      }
+    },
+    {
+      "colmeia": "user",
+      "chave": "Software\\THQ\\Cars\\Settings\\Display",
+      "valores": {
+        "Resolution": 14,
+        "MultiSampleType": 4,
+        "FullscreenEffects": 1
+      }
+    }
+  ]
+}

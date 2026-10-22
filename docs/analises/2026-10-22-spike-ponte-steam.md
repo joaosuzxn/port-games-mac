@@ -31,4 +31,15 @@ Tudo em `spikes/ponte-steam/compilar_ponte.sh`; instalação em `spikes/ponte-st
   terceiros é risco. Fontes e binários ficam em `~/Library/Caches/portcarros/fontes`, nunca no git.
 - Ferramentas instaladas (aprovadas pelo dono): `mingw-w64`, `bison`, `flex`.
 - O modo automático do Claude Code bloqueia compilar/rodar código de terceiros; o dono aprovou os comandos do spike.
-- Teste 2 (SteamStub, `Cars.exe` da Steam): pendente.
+
+## Teste 2: SteamStub — funcionou
+
+`Cars.exe` da Steam (App 331160, 32 bits, **com SteamStub**, SHA-1 `d4a2f16e…`), receita `carros-steam.json`
+(igual à do Carros, mas sem trocar pelo `bak/Cars.exe`): o stub fez `ConnectToGlobalUser`, `GetSteamID`, `GetAppID`,
+`GetConnectedUniverse`, `ReleaseUser` pela ponte e liberou o jogo — vídeos e menu normais, verificado pelo dono.
+Conclusão: com a ponte, jogos com SteamStub rodam sem remover DRM.
+
+## Achado lateral
+
+Criar o prefixo (`WSS-wineprefixcreate`) travou 300 s enquanto o `Spacewar.app` estava aberto; com ele fechado,
+66 s normais. Registrado como bug.
