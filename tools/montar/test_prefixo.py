@@ -6,7 +6,7 @@ import unittest
 from dataclasses import replace
 from pathlib import Path
 
-from prefixo import JogoInvalido, aplicar_registro, configurar_drive_cd, copiar_jogo, ligar_saves
+from prefixo import JogoInvalido, aplicar_registro, configurar_drive_cd, copiar_jogo, ligar_saves, relocar_registro
 from receita import ChaveRegistro, carregar_receita
 
 RECEITA = carregar_receita(Path(__file__).parent / "receitas" / "carros.json")
@@ -97,6 +97,45 @@ class TestPrefixo(unittest.TestCase):
         self.assertEqual(usuario.count("[Software\\\\Wine\\\\Explorer\\\\Desktops]"), 1)
         self.assertIn('"Default"="2560x1664"', usuario)
         self.assertNotIn("1280x720", usuario)
+
+
+class TestRelocarRegistro(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.de = self.tmp / "build com espaço" / "Carros.app"
+        self.para = Path("/Applications/Carros.app")
+        self.prefixo = self.tmp / "prefix"
+        self.prefixo.mkdir()
+        esc = "Z:" + str(self.de).replace("/", "\\\\")
+        self.esc = esc
+        (self.prefixo / "system.reg").write_text(
+            f'[Software\\\\Microsoft\\\\Fonts] 1\n"Marlett"="{esc}\\\\Contents\\\\fonts\\\\marlett.ttf"\n'
+            f'"Outro"="Z:\\\\Users\\\\x\\\\build com espaço\\\\Carros.app2\\\\a"\n')
+        (self.prefixo / "user.reg").write_text(
+            f'"InstallSource"="{self.de}/Contents/mono"\n"Barra"="Z:{self.de}/x"\n"Sem"="C:\\\\windows"\n')
+
+    def test_troca_as_formas_do_caminho(self):
+        relocar_registro(self.prefixo, self.de, self.para)
+        sistema = (self.prefixo / "system.reg").read_text()
+        usuario = (self.prefixo / "user.reg").read_text()
+        self.assertIn('"Marlett"="Z:\\\\Applications\\\\Carros.app\\\\Contents\\\\fonts\\\\marlett.ttf"', sistema)
+        self.assertNotIn("build com", sistema.split("\n")[1])
+        self.assertIn('"InstallSource"="/Applications/Carros.app/Contents/mono"', usuario)
+        self.assertIn('"Barra"="Z:/Applications/Carros.app/x"', usuario)
+        self.assertIn('"Sem"="C:\\\\windows"', usuario)
+
+    def test_nao_toca_em_nome_parecido(self):
+        relocar_registro(self.prefixo, self.de, self.para)
+        self.assertIn("Carros.app2", (self.prefixo / "system.reg").read_text())
+
+    def test_aceita_caminho_nao_resolvido(self):
+        real = self.tmp / "real" / "Carros.app"
+        real.mkdir(parents=True)
+        link = self.tmp / "atalho.app"
+        link.symlink_to(real)
+        (self.prefixo / "user.reg").write_text(f'"x"="{real.resolve()}/Contents"\n')
+        relocar_registro(self.prefixo, link, self.para)
+        self.assertEqual((self.prefixo / "user.reg").read_text(), '"x"="/Applications/Carros.app/Contents"\n')
 
 
 class TestSaves(unittest.TestCase):

@@ -13,7 +13,7 @@ from artefatos import CACHE_PADRAO, FONTES_LOCAIS_PADRAO, ArtefatoInvalido, carr
 from bundle import configurar_info_plist, montar_bundle, remover_configuracao
 from icone import extrair_icone
 from prefixo import (JogoInvalido, PrefixoFalhou, aplicar_registro, configurar_drive_cd, conferir_jogo, copiar_jogo,
-                     criar_prefixo, ligar_saves, parar_wine)
+                     criar_prefixo, ligar_saves, parar_wine, relocar_registro)
 from receita import ReceitaInvalida, carregar_receita
 
 AQUI = Path(__file__).resolve().parent
@@ -73,6 +73,7 @@ def montar(receita_nome: str, saida: Path, cache: Path, pasta_jogo: Path | None,
         if destino.exists():
             shutil.rmtree(destino)
         shutil.copytree(app, destino, symlinks=True)
+        relocar_registro(destino / "Contents" / "SharedSupport" / "prefix", app, destino)
         app = destino
     _etapa(f"Pronto: {app}")
     return app

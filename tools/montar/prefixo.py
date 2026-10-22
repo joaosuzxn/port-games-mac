@@ -1,6 +1,7 @@
 """Prefixo Windows dentro do .app: criação pelo launcher, cópia do jogo, drive de CD, registro e saves."""
 import hashlib
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -166,3 +167,23 @@ def ligar_saves(prefixo: Path, pasta: str, documentos_mac: Path) -> None:
         elif link.exists():
             shutil.rmtree(link)
         os.symlink(alvo, link)
+
+
+# --- Relocação --------------------------------------------------------------------------
+
+def relocar_registro(prefixo: Path, de: Path, para: Path) -> None:
+    """Troca o caminho do bundle `de` pelo de `para` em system.reg/user.reg (o Wine grava caminhos absolutos
+    de fontes, InstallSource do wine-mono etc.). O Wine do app precisa estar parado (parar_wine)."""
+    pares = []
+    for origem in dict.fromkeys([str(de), str(de.resolve())]):
+        pares.append(("Z:" + origem.replace("/", "\\\\"), "Z:" + str(para).replace("/", "\\\\")))  # forma do .reg: Z:\\Users\\...
+        pares.append(("Z:" + origem.replace("/", "\\"), "Z:" + str(para).replace("/", "\\")))
+        pares.append((origem, str(para)))  # barras normais (Z:/... ou /...)
+    for nome in ("system.reg", "user.reg"):
+        arquivo = prefixo / nome
+        if not arquivo.is_file():
+            continue
+        texto = arquivo.read_text(encoding="utf-8")
+        for velho, novo in pares:
+            texto = re.sub(re.escape(velho) + r"(?![\w-])", lambda _: novo, texto)
+        arquivo.write_text(texto, encoding="utf-8")
