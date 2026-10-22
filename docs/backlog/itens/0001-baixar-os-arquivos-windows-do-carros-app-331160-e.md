@@ -3,10 +3,10 @@ id: 1
 titulo: "Baixar os arquivos Windows do Carros (App 331160) e inspecionar o executável"
 tipo: tarefa
 urgencia: P1
-status: aberto
+status: em-andamento
 modulos: [jogo, infra]
 criado: 2026-10-22
-iniciado: null
+iniciado: 2026-10-22
 concluido: null
 commits: []
 relacionados: []
@@ -27,3 +27,4 @@ Antes de escolher a camada gráfica e a ferramenta de empacotamento, é preciso 
 4. Registrar o resultado em docs/analises e fechar o item.
 
 ## Notas de execução
+2026-10-22: Download completo (1,1 GB). 32 bits, D3D9, DirectSound, DInput8, Bink. Cars.exe tem SteamStub; bak/Cars.exe é o mesmo build sem DRM. Ver docs/analises/2026-10-22-inspecao-executavel.md.
