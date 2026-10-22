@@ -150,21 +150,37 @@ def aplicar_registro(prefixo: Path, chaves: Iterable[ChaveRegistro]) -> None:
 
 # --- Saves ------------------------------------------------------------------------------
 
+def _dentro(caminho: Path, pai: Path) -> bool:
+    return caminho == pai or pai in caminho.parents
+
+
 def ligar_saves(prefixo: Path, pasta: str, documentos_mac: Path) -> None:
-    """Liga só Documents/<pasta> do Windows a ~/Documents/<pasta>; o resto de Documents fica isolado no prefixo."""
+    """Liga só Documents/<pasta> do Windows a ~/Documents/<pasta>; o resto de Documents fica isolado no prefixo.
+    Nunca apaga nada que resolva para fora do prefixo nem a própria pasta de saves."""
     alvo = documentos_mac / pasta
     alvo.mkdir(parents=True, exist_ok=True)
-    for usuario in (prefixo / "drive_c" / "users").iterdir():
+    raiz = prefixo.resolve()
+    vistos = set()
+    for usuario in sorted((prefixo / "drive_c" / "users").iterdir()):
         if usuario.name == "Public" or not usuario.is_dir():
             continue
+        real = usuario.resolve()
+        if not _dentro(real, raiz):
+            raise PrefixoFalhou(f"a pasta de usuário {usuario} aponta para fora do prefixo ({real}); nada foi apagado")
+        if real in vistos:
+            continue
+        vistos.add(real)
         docs = usuario / "Documents"
         if docs.is_symlink():
-            docs.unlink()
+            docs.unlink()  # só o link, nunca o destino
         docs.mkdir(exist_ok=True)
         link = docs / pasta
         if link.is_symlink():
             link.unlink()
         elif link.exists():
+            resolvido = link.resolve()
+            if not _dentro(resolvido, raiz) or resolvido == alvo.resolve():
+                raise PrefixoFalhou(f"{link} resolve para {resolvido}, fora do prefixo ou igual à pasta de saves; nada foi apagado")
             shutil.rmtree(link)
         os.symlink(alvo, link)
 

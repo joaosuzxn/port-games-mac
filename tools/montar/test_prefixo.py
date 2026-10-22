@@ -7,6 +7,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from prefixo import JogoInvalido, aplicar_registro, configurar_drive_cd, copiar_jogo, ligar_saves, relocar_registro
+from prefixo import PrefixoFalhou
 from receita import ChaveRegistro, carregar_receita
 
 RECEITA = carregar_receita(Path(__file__).parent / "receitas" / "carros.json")
@@ -168,6 +169,24 @@ class TestSaves(unittest.TestCase):
         shutil.rmtree(self.docs_mac / "THQ")
         ligar_saves(self.prefixo, "THQ", self.docs_mac)
         self.assertTrue((self.docs_mac / "THQ").is_dir())
+
+    def test_usuario_symlink_para_fora_nao_apaga_nada(self):
+        externo = self.tmp / "externo"
+        (externo / "Documents" / "THQ").mkdir(parents=True)
+        (externo / "Documents" / "THQ" / "importante").write_text("dado real")
+        (self.prefixo / "drive_c" / "users" / "joao" / "Documents").unlink()
+        (self.prefixo / "drive_c" / "users" / "joao").rmdir()
+        os.symlink(externo, self.prefixo / "drive_c" / "users" / "joao")
+        with self.assertRaises(PrefixoFalhou) as ctx:
+            ligar_saves(self.prefixo, "THQ", self.docs_mac)
+        self.assertIn("fora do prefixo", str(ctx.exception))
+        self.assertEqual((externo / "Documents" / "THQ" / "importante").read_text(), "dado real")
+        self.assertEqual((self.docs_mac / "THQ" / "Cars" / "Save" / "slot1").read_text(), "progresso")
+
+    def test_usuarios_duplicados_por_symlink_sao_unicos(self):
+        os.symlink(self.prefixo / "drive_c" / "users" / "joao", self.prefixo / "drive_c" / "users" / "alias")
+        ligar_saves(self.prefixo, "THQ", self.docs_mac)
+        self.assertEqual((self.docs_mac / "THQ" / "Cars" / "Save" / "slot1").read_text(), "progresso")
 
 
 if __name__ == "__main__":
