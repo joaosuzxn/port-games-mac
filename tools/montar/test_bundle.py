@@ -6,7 +6,7 @@ import unittest
 from dataclasses import replace
 from pathlib import Path
 
-from bundle import montar_bundle, remover_configuracao
+from bundle import montar_bundle, remover_configuracao, substituir_app
 from receita import carregar_receita
 
 RECEITA = carregar_receita(Path(__file__).parent / "receitas" / "carros.json")
@@ -101,6 +101,35 @@ class TestBundle(unittest.TestCase):
         for chave, valor in p.items():
             if isinstance(valor, str):
                 self.assertNotIn(str(self.saida), valor, chave)
+
+
+class TestSubstituirApp(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.novo = self.tmp / "trabalho" / "Carros.app"
+        (self.novo / "Contents").mkdir(parents=True)
+        (self.novo / "Contents" / "marca").write_text("novo")
+        self.final = self.tmp / "build" / "Carros.app"
+        self.final.parent.mkdir()
+
+    def test_sem_app_anterior(self):
+        substituir_app(self.novo, self.final)
+        self.assertEqual((self.final / "Contents" / "marca").read_text(), "novo")
+        self.assertFalse(self.novo.exists())
+
+    def test_troca_e_apaga_o_velho(self):
+        (self.final / "Contents").mkdir(parents=True)
+        (self.final / "Contents" / "marca").write_text("velho")
+        substituir_app(self.novo, self.final)
+        self.assertEqual((self.final / "Contents" / "marca").read_text(), "novo")
+        self.assertEqual([p.name for p in self.final.parent.iterdir()], ["Carros.app"])
+
+    def test_falha_na_troca_devolve_o_velho(self):
+        (self.final / "Contents").mkdir(parents=True)
+        (self.final / "Contents" / "marca").write_text("velho")
+        with self.assertRaises(OSError):
+            substituir_app(self.tmp / "nao-existe.app", self.final)
+        self.assertEqual((self.final / "Contents" / "marca").read_text(), "velho")
 
 
 if __name__ == "__main__":

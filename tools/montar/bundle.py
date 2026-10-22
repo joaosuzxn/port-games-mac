@@ -61,3 +61,20 @@ def montar_bundle(template: Path, engine_tar: Path, saida: Path, receita: Receit
             shutil.rmtree(final)
         app.rename(final)
     return final
+
+
+def substituir_app(novo: Path, final: Path) -> None:
+    """Põe `novo` no lugar de `final` por rename (mesmo volume). O app antigo só é apagado depois que o novo está no lugar."""
+    velho = None
+    if final.exists() or final.is_symlink():
+        velho = final.with_name(f".{final.name}.velho")
+        shutil.rmtree(velho, ignore_errors=True)
+        final.rename(velho)
+    try:
+        novo.rename(final)
+    except BaseException:
+        if velho is not None:
+            velho.rename(final)
+        raise
+    if velho is not None:
+        shutil.rmtree(velho, ignore_errors=True)
