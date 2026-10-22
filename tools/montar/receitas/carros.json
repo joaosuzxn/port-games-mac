@@ -9,9 +9,10 @@
   "excluir": ["_jvm", "_uninst", "_CommonRedist", "steamapps", "THQ Website.url", "Cars.exe", "bak"],
   "rotulo_cd": "DISC2",
   "pasta_saves": "THQ",
-  "renderizador": "d9vk",
+  "renderizador": "wined3d",
   "registro": [
     {"colmeia": "system", "chave": "Software\\Wine\\Drives", "valores": {"d:": "cdrom"}},
-    {"colmeia": "user", "chave": "Software\\Wine\\X11 Driver", "valores": {"EmulateModeset": "y"}}
+    {"colmeia": "user", "chave": "Software\\Wine\\X11 Driver", "valores": {"EmulateModeset": "y"}},
+    {"colmeia": "user", "chave": "Software\\THQ\\Cars\\Settings\\Display", "valores": {"Resolution": 14, "MultiSampleType": 4, "FullscreenEffects": 1}}
   ]
 }

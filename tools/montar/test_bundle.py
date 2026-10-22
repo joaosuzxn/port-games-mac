@@ -74,7 +74,7 @@ class TestBundle(unittest.TestCase):
         remover_configuracao(app)  # idempotente
 
     def test_info_plist(self):
-        p = self._plist(self._montar())
+        p = self._plist(self._montar(replace(RECEITA, renderizador="d9vk")))
         self.assertEqual(p["CFBundleName"], "Carros")
         self.assertEqual(p["CFBundleIdentifier"], "local.portcarros.carros")
         self.assertEqual(p["Program Name and Path"], "/Games/Carros/Cars.exe")

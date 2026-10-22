@@ -27,4 +27,4 @@ No spike (CarrosTeste.app, D9VK, área virtual 1280x720, Debug Mode e WINEDEBUG 
 Medir FPS (METAL_HUD) e comparar uma variável por vez: sem log de depuração, WineD3D, D3DMetal, resolução da área virtual.
 
 ## Notas de execução
-
+2026-10-22: WineD3D: 30 FPS cravados (teto do jogo, VSync 30Hz embutido), mínimo 29,8, também em 1600x1200. ADR 0003.

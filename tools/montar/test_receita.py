@@ -23,7 +23,7 @@ class TestReceitaCarros(unittest.TestCase):
         self.assertEqual(r.sha1_exe, "a175e49a8cd3aa67ffd71b7cf1a8d0c90b527902")
         self.assertEqual(r.rotulo_cd, "DISC2")
         self.assertEqual(r.pasta_saves, "THQ")
-        self.assertEqual(r.renderizador, "d9vk")
+        self.assertEqual(r.renderizador, "wined3d")  # ADR 0003: 30 FPS estáveis (teto do jogo)
         for item in ("_jvm", "_uninst", "_CommonRedist", "steamapps", "THQ Website.url", "Cars.exe", "bak"):
             self.assertIn(item, r.excluir)
 
@@ -32,6 +32,9 @@ class TestReceitaCarros(unittest.TestCase):
         # tela cheia: emulação de troca de resolução, sem área de trabalho virtual (ADR 0002)
         self.assertIn(ChaveRegistro("user", r"Software\Wine\X11 Driver", {"EmulateModeset": "y"}), self.r.registro)
         self.assertFalse(any(c.chave.startswith(r"Software\Wine\Explorer") for c in self.r.registro))
+        # vídeo do jogo: 1600x1200 (índice 14), MSAA 4x, efeitos ligados — medido a 30 FPS estáveis
+        self.assertIn(ChaveRegistro("user", r"Software\THQ\Cars\Settings\Display",
+                                    {"Resolution": 14, "MultiSampleType": 4, "FullscreenEffects": 1}), self.r.registro)
 
 
 class TestReceitaInvalida(unittest.TestCase):
