@@ -1,6 +1,6 @@
-"""Monta o .app de um jogo a partir da receita.
+"""Builds a game's .app from its recipe.
 
-Uso: python3 tools/builder/build.py carros [--saida build] [--cache DIR] [--jogo DIR] [--instalar]
+Usage: python3 tools/builder/build.py carros [--output build] [--cache DIR] [--game-dir DIR] [--install] [--install-dir DIR]
 """
 import argparse
 import urllib.error
@@ -11,34 +11,34 @@ import sys
 import tempfile
 from pathlib import Path
 
-from artifacts import CACHE_PADRAO, FONTES_LOCAIS_PADRAO, ArtefatoInvalido, carregar_artefatos, garantir_artefato
-from bundle import configurar_info_plist, montar_bundle, remover_configuracao, substituir_app
-from icon import extrair_icone
-from prefix import (JogoInvalido, PrefixoFalhou, aplicar_registro, configurar_drive_cd, conferir_jogo, copiar_jogo,
-                     criar_prefixo, ligar_saves, parar_wine, relocar_registro)
-from recipe import ReceitaInvalida, carregar_receita
+from artifacts import DEFAULT_CACHE, DEFAULT_LOCAL_SOURCES, InvalidArtifact, ensure_artifact, load_artifacts
+from bundle import build_bundle, configure_info_plist, remove_configurator, replace_app
+from icon import extract_icon
+from prefix import (InvalidGame, PrefixFailed, apply_registry, check_game, copy_game, create_prefix, link_saves,
+                    relocate_registry, setup_cd_drive, stop_wine)
+from recipe import InvalidRecipe, load_recipe
 
-AQUI = Path(__file__).resolve().parent
-RAIZ = AQUI.parents[1]
-
-
-def _etapa(texto: str) -> None:
-    print(f"• {texto}", flush=True)
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[1]
 
 
-def _definir_icone(app: Path, icns: Path) -> None:
+def _step(text: str) -> None:
+    print(f"• {text}", flush=True)
+
+
+def _set_icon(app: Path, icns: Path) -> None:
     plist = app / "Contents" / "Info.plist"
     with open(plist, "rb") as f:
-        dados = plistlib.load(f)
-    dados["CFBundleIconFile"] = icns.name
+        data = plistlib.load(f)
+    data["CFBundleIconFile"] = icns.name
     with open(plist, "wb") as f:
-        plistlib.dump(dados, f)
+        plistlib.dump(data, f)
 
 
-DIRETORIO_INSTALACAO_PADRAO = Path("/Applications")
+DEFAULT_INSTALL_DIR = Path("/Applications")
 
 
-def _bundle_id_de(app: Path) -> str | None:
+def _bundle_id_of(app: Path) -> str | None:
     try:
         with open(app / "Contents" / "Info.plist", "rb") as f:
             return plistlib.load(f).get("CFBundleIdentifier")
@@ -46,118 +46,118 @@ def _bundle_id_de(app: Path) -> str | None:
         return None
 
 
-def _conferir_destino(destino: Path, receita) -> None:
-    """Só deixa trocar um app que já é deste jogo (mesmo CFBundleIdentifier)."""
-    if not (destino.exists() or destino.is_symlink()):
+def _check_target(target: Path, recipe) -> None:
+    """Only lets an app that already belongs to this game (same CFBundleIdentifier) be replaced."""
+    if not (target.exists() or target.is_symlink()):
         return
-    atual = _bundle_id_de(destino)
-    if atual != receita.bundle_id:
-        raise PrefixoFalhou(
-            f"{destino} já existe e não é o app deste jogo (CFBundleIdentifier {atual!r}, esperado {receita.bundle_id!r}); "
-            "não vou apagar. Mova ou remova esse app e rode de novo."
+    current = _bundle_id_of(target)
+    if current != recipe.bundle_id:
+        raise PrefixFailed(
+            f"{target} already exists and is not this game's app (CFBundleIdentifier {current!r}, expected {recipe.bundle_id!r}); "
+            "I will not delete it. Move or remove that app and run again."
         )
 
 
-def _prefixo_de(app: Path) -> Path:
+def _prefix_of(app: Path) -> Path:
     return app / "Contents" / "SharedSupport" / "prefix"
 
 
-def instalar_app(app: Path, diretorio: Path, receita) -> Path:
-    """Copia para `<dir>/.<App>.app.novo`, ajusta os caminhos do registro e troca no fim."""
-    destino = diretorio / app.name
-    _conferir_destino(destino, receita)
-    diretorio.mkdir(parents=True, exist_ok=True)
-    novo = diretorio / f".{app.name}.novo"
-    shutil.rmtree(novo, ignore_errors=True)
+def install_app(app: Path, directory: Path, recipe) -> Path:
+    """Copies to `<dir>/.<App>.app.new`, adjusts the registry paths and swaps at the end."""
+    target = directory / app.name
+    _check_target(target, recipe)
+    directory.mkdir(parents=True, exist_ok=True)
+    new = directory / f".{app.name}.new"
+    shutil.rmtree(new, ignore_errors=True)
     try:
-        shutil.copytree(app, novo, symlinks=True)
-        relocar_registro(_prefixo_de(novo), app, destino)
-        if destino.exists():
-            parar_wine(destino)
-        substituir_app(novo, destino)
+        shutil.copytree(app, new, symlinks=True)
+        relocate_registry(_prefix_of(new), app, target)
+        if target.exists():
+            stop_wine(target)
+        replace_app(new, target)
     finally:
-        shutil.rmtree(novo, ignore_errors=True)
-    return destino
+        shutil.rmtree(new, ignore_errors=True)
+    return target
 
 
-def montar(receita_nome: str, saida: Path, cache: Path, pasta_jogo: Path | None, instalar: bool,
-           diretorio_instalacao: Path = DIRETORIO_INSTALACAO_PADRAO) -> Path:
-    receita = carregar_receita(AQUI / "recipes" / f"{receita_nome}.json")
-    jogo = pasta_jogo or (RAIZ / receita.pasta_jogo)
-    _etapa(f"Conferindo os arquivos do jogo em {jogo}")
-    conferir_jogo(jogo, receita)  # antes de tocar em build/
-    final = saida / f"{receita.nome_app}.app"
-    if instalar:
-        _conferir_destino(diretorio_instalacao / final.name, receita)
+def build_app(recipe_name: str, output: Path, cache: Path, game_dir: Path | None, install: bool,
+              install_dir: Path = DEFAULT_INSTALL_DIR) -> Path:
+    recipe = load_recipe(HERE / "recipes" / f"{recipe_name}.json")
+    game = game_dir or (ROOT / recipe.game_dir)
+    _step(f"Checking the game files in {game}")
+    check_game(game, recipe)  # before touching build/
+    final = output / f"{recipe.app_name}.app"
+    if install:
+        _check_target(install_dir / final.name, recipe)
 
-    _etapa("Conferindo template e engine Wine")
-    artefatos = carregar_artefatos(AQUI / "artifacts.json")
-    template = garantir_artefato(artefatos["template"], cache, FONTES_LOCAIS_PADRAO)
-    engine = garantir_artefato(artefatos["engine"], cache, FONTES_LOCAIS_PADRAO)
+    _step("Checking template and Wine engine")
+    artifacts = load_artifacts(HERE / "artifacts.json")
+    template = ensure_artifact(artifacts["template"], cache, DEFAULT_LOCAL_SOURCES)
+    engine = ensure_artifact(artifacts["engine"], cache, DEFAULT_LOCAL_SOURCES)
 
     if final.exists():
-        parar_wine(final)  # um Wine rodando do app antigo seria sobrescrito/atrapalhado
-    saida.mkdir(parents=True, exist_ok=True)
-    for abandonado in saida.glob(".montando-*"):
-        shutil.rmtree(abandonado, ignore_errors=True)
-    trabalho = Path(tempfile.mkdtemp(prefix=".montando-", dir=saida))  # tudo é montado aqui; o app final só muda no fim
+        stop_wine(final)  # a Wine running from the old app would be overwritten/disturbed
+    output.mkdir(parents=True, exist_ok=True)
+    for abandoned in output.glob(".building-*"):
+        shutil.rmtree(abandoned, ignore_errors=True)
+    workdir = Path(tempfile.mkdtemp(prefix=".building-", dir=output))  # everything is built here; the final app only changes at the end
     try:
-        _etapa(f"Montando {receita.nome_app}.app")
-        app = montar_bundle(template, engine, trabalho, receita)
-        _etapa("Criando o Windows de dentro do app (prefixo)")
-        prefixo = criar_prefixo(app)
-        configurar_info_plist(app / "Contents" / "Info.plist", receita)  # o launcher reescreve o identificador ao criar o prefixo
+        _step(f"Building {recipe.app_name}.app")
+        app = build_bundle(template, engine, workdir, recipe)
+        _step("Creating the Windows inside the app (prefix)")
+        prefix = create_prefix(app)
+        configure_info_plist(app / "Contents" / "Info.plist", recipe)  # the launcher rewrites the identifier when creating the prefix
 
-        _etapa("Copiando o jogo")
-        destino_jogo = prefixo / "drive_c" / "Games" / receita.nome_app
-        copiar_jogo(jogo, destino_jogo, receita)
-        if receita.rotulo_cd:
-            configurar_drive_cd(prefixo, f"Games/{receita.nome_app}", receita.rotulo_cd)
-        aplicar_registro(prefixo, receita.registro)
-        if receita.pasta_saves:
-            ligar_saves(prefixo, receita.pasta_saves, Path.home() / "Documents")
+        _step("Copying the game")
+        game_target = prefix / "drive_c" / "Games" / recipe.app_name
+        copy_game(game, game_target, recipe)
+        if recipe.cd_label:
+            setup_cd_drive(prefix, f"Games/{recipe.app_name}", recipe.cd_label)
+        apply_registry(prefix, recipe.registry)
+        if recipe.saves_dir:
+            link_saves(prefix, recipe.saves_dir, Path.home() / "Documents")
 
-        _etapa("Ícone e acabamento")
-        icns = app / "Contents" / "Resources" / f"{receita.nome_app}.icns"
-        if extrair_icone(destino_jogo / receita.exe_destino, icns):
-            _definir_icone(app, icns)
-        parar_wine(app)
-        remover_configuracao(app)
+        _step("Icon and finishing touches")
+        icns = app / "Contents" / "Resources" / f"{recipe.app_name}.icns"
+        if extract_icon(game_target / recipe.exe_target, icns):
+            _set_icon(app, icns)
+        stop_wine(app)
+        remove_configurator(app)
         subprocess.run(["xattr", "-dr", "com.apple.quarantine", str(app)], capture_output=True)
-        relocar_registro(prefixo, app, final)  # o Wine gravou o caminho da pasta de trabalho
+        relocate_registry(prefix, app, final)  # Wine recorded the path of the work folder
 
-        substituir_app(app, final)
+        replace_app(app, final)
     finally:
-        shutil.rmtree(trabalho, ignore_errors=True)
+        shutil.rmtree(workdir, ignore_errors=True)
     app = final
 
-    if instalar:
-        _etapa(f"Instalando em {diretorio_instalacao / app.name}")
-        app = instalar_app(app, diretorio_instalacao, receita)
-    _etapa(f"Pronto: {app}")
+    if install:
+        _step(f"Installing in {install_dir / app.name}")
+        app = install_app(app, install_dir, recipe)
+    _step(f"Done: {app}")
     return app
 
 
 def main(argv: list[str]) -> int:
-    p = argparse.ArgumentParser(description="Monta o .app de um jogo Windows a partir da receita.")
-    p.add_argument("receita", help="nome da receita em tools/builder/recipes (ex.: carros)")
-    p.add_argument("--saida", type=Path, default=RAIZ / "build")
-    p.add_argument("--cache", type=Path, default=CACHE_PADRAO)
-    p.add_argument("--jogo", type=Path, default=None, help="pasta com os arquivos do jogo (padrão: a da receita)")
-    p.add_argument("--instalar", action="store_true", help="copia o app para /Applications (ou --destino-instalacao)")
-    p.add_argument("--destino-instalacao", type=Path, default=DIRETORIO_INSTALACAO_PADRAO,
-                   help="pasta onde --instalar põe o app (padrão: /Applications)")
+    p = argparse.ArgumentParser(description="Builds the .app of a Windows game from its recipe.")
+    p.add_argument("recipe", help="name of the recipe in tools/builder/recipes (e.g. carros)")
+    p.add_argument("--output", type=Path, default=ROOT / "build")
+    p.add_argument("--cache", type=Path, default=DEFAULT_CACHE)
+    p.add_argument("--game-dir", type=Path, default=None, help="folder with the game files (default: the recipe's)")
+    p.add_argument("--install", action="store_true", help="copies the app to /Applications (or --install-dir)")
+    p.add_argument("--install-dir", type=Path, default=DEFAULT_INSTALL_DIR,
+                   help="folder where --install puts the app (default: /Applications)")
     args = p.parse_args(argv)
     try:
-        montar(args.receita, args.saida, args.cache, args.jogo, args.instalar, args.destino_instalacao)
-    except (ReceitaInvalida, JogoInvalido, ArtefatoInvalido, PrefixoFalhou) as e:
-        print(f"Erro: {e}", file=sys.stderr)
+        build_app(args.recipe, args.output, args.cache, args.game_dir, args.install, args.install_dir)
+    except (InvalidRecipe, InvalidGame, InvalidArtifact, PrefixFailed) as e:
+        print(f"Error: {e}", file=sys.stderr)
         return 1
     except (OSError, RuntimeError, urllib.error.URLError) as e:
-        print(f"Erro: {e}", file=sys.stderr)
+        print(f"Error: {e}", file=sys.stderr)
         return 1
     except subprocess.CalledProcessError as e:
-        print(f"Erro: comando falhou: {' '.join(map(str, e.cmd))}", file=sys.stderr)
+        print(f"Error: command failed: {' '.join(map(str, e.cmd))}", file=sys.stderr)
         return 1
     return 0
 

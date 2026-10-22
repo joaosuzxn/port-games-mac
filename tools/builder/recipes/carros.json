@@ -1,20 +1,20 @@
 {
-  "nome": "carros",
-  "nome_app": "Carros",
+  "name": "carros",
+  "app_name": "Carros",
   "bundle_id": "local.portcarros.carros",
-  "pasta_jogo": "jogo",
-  "exe_origem": "bak/Cars.exe",
-  "exe_destino": "Cars.exe",
-  "sha1_exe": "a175e49a8cd3aa67ffd71b7cf1a8d0c90b527902",
-  "excluir": ["_jvm", "_uninst", "_CommonRedist", "steamapps", "THQ Website.url", "Cars.exe", "bak"],
-  "arquivos_obrigatorios": ["Data/Global.pak", "Data/UI.pak", "Data/misc.pak", "Data/Audio.pak", "Data/Scenes.pak", "Data/Act.pak", "Data/Res.pak", "binkw32.dll"],
-  "rotulo_cd": "DISC2",
-  "pasta_saves": "THQ",
-  "renderizador": "wined3d",
-  "registro": [
-    {"colmeia": "system", "chave": "Software\\Wine\\Drives", "valores": {"d:": "cdrom"}},
-    {"colmeia": "system", "chave": "System\\ControlSet001\\Services\\winebus", "valores": {"Enable SDL": 1, "Map Controllers": 1}},
-    {"colmeia": "user", "chave": "Software\\Wine\\X11 Driver", "valores": {"EmulateModeset": "y"}},
-    {"colmeia": "user", "chave": "Software\\THQ\\Cars\\Settings\\Display", "valores": {"Resolution": 14, "MultiSampleType": 4, "FullscreenEffects": 1}}
+  "game_dir": "jogo",
+  "exe_source": "bak/Cars.exe",
+  "exe_target": "Cars.exe",
+  "exe_sha1": "a175e49a8cd3aa67ffd71b7cf1a8d0c90b527902",
+  "exclude": ["_jvm", "_uninst", "_CommonRedist", "steamapps", "THQ Website.url", "Cars.exe", "bak"],
+  "required_files": ["Data/Global.pak", "Data/UI.pak", "Data/misc.pak", "Data/Audio.pak", "Data/Scenes.pak", "Data/Act.pak", "Data/Res.pak", "binkw32.dll"],
+  "cd_label": "DISC2",
+  "saves_dir": "THQ",
+  "renderer": "wined3d",
+  "registry": [
+    {"hive": "system", "key": "Software\\Wine\\Drives", "values": {"d:": "cdrom"}},
+    {"hive": "system", "key": "System\\ControlSet001\\Services\\winebus", "values": {"Enable SDL": 1, "Map Controllers": 1}},
+    {"hive": "user", "key": "Software\\Wine\\X11 Driver", "values": {"EmulateModeset": "y"}},
+    {"hive": "user", "key": "Software\\THQ\\Cars\\Settings\\Display", "values": {"Resolution": 14, "MultiSampleType": 4, "FullscreenEffects": 1}}
   ]
 }

@@ -6,12 +6,12 @@ import unittest
 from dataclasses import replace
 from pathlib import Path
 
-from bundle import montar_bundle, remover_configuracao, substituir_app
-from recipe import carregar_receita
+from bundle import build_bundle, remove_configurator, replace_app
+from recipe import load_recipe
 
-RECEITA = carregar_receita(Path(__file__).parent / "recipes" / "carros.json")
+RECIPE = load_recipe(Path(__file__).parent / "recipes" / "carros.json")
 
-PLIST_TEMPLATE = {
+TEMPLATE_PLIST = {
     "CFBundleName": "SikarugirNavyWrapper",
     "CFBundleIdentifier": "com.SikarugirNavyWrapper.Sikarugir",
     "CFBundleIconFile": "Configure.icns",
@@ -25,8 +25,8 @@ PLIST_TEMPLATE = {
 }
 
 
-def _tar(origem: Path, destino: Path, raiz: str):
-    subprocess.run(["tar", "-cJf", str(destino), "-C", str(origem), raiz], check=True)
+def _tar(source: Path, target: Path, root: str):
+    subprocess.run(["tar", "-cJf", str(target), "-C", str(source), root], check=True)
 
 
 class TestBundle(unittest.TestCase):
@@ -38,7 +38,7 @@ class TestBundle(unittest.TestCase):
         (t / "MacOS").mkdir()
         (t / "MacOS" / "launcher").write_text("#!/bin/sh\n")
         with open(t / "Info.plist", "wb") as f:
-            plistlib.dump(PLIST_TEMPLATE, f)
+            plistlib.dump(TEMPLATE_PLIST, f)
         self.template = self.tmp / "Template-1.0.24.tar.xz"
         _tar(self.tmp / "t", self.template, "Template-1.0.24.app")
 
@@ -49,32 +49,32 @@ class TestBundle(unittest.TestCase):
         self.engine = self.tmp / "engine.tar.xz"
         _tar(self.tmp / "e", self.engine, "wswine.bundle")
 
-        self.saida = self.tmp / "build com espaço"
+        self.output = self.tmp / "build with space ü"  # space and a non-ASCII character in the path
 
-    def _montar(self, receita=RECEITA):
-        return montar_bundle(self.template, self.engine, self.saida, receita)
+    def _build(self, recipe=RECIPE):
+        return build_bundle(self.template, self.engine, self.output, recipe)
 
     def _plist(self, app):
         with open(app / "Contents" / "Info.plist", "rb") as f:
             return plistlib.load(f)
 
-    def test_monta_estrutura(self):
-        app = self._montar()
-        self.assertEqual(app, self.saida / "Carros.app")
+    def test_builds_structure(self):
+        app = self._build()
+        self.assertEqual(app, self.output / "Carros.app")
         wine = app / "Contents" / "SharedSupport" / "wine" / "bin" / "wine"
         self.assertTrue(wine.is_file())
         self.assertTrue(os.access(wine, os.X_OK))
-        # o launcher precisa do Configure.app (remakedefaults.reg) para criar o prefixo
+        # the launcher needs Configure.app (remakedefaults.reg) to create the prefix
         self.assertTrue((app / "Contents" / "Configure.app").exists())
 
-    def test_remover_configuracao(self):
-        app = self._montar()
-        remover_configuracao(app)
+    def test_remove_configurator(self):
+        app = self._build()
+        remove_configurator(app)
         self.assertFalse((app / "Contents" / "Configure.app").exists())
-        remover_configuracao(app)  # idempotente
+        remove_configurator(app)  # idempotent
 
     def test_info_plist(self):
-        p = self._plist(self._montar(replace(RECEITA, renderizador="d9vk")))
+        p = self._plist(self._build(replace(RECIPE, renderer="d9vk")))
         self.assertEqual(p["CFBundleName"], "Carros")
         self.assertEqual(p["CFBundleIdentifier"], "local.portcarros.carros")
         self.assertEqual(p["Program Name and Path"], "/Games/Carros/Cars.exe")
@@ -83,53 +83,53 @@ class TestBundle(unittest.TestCase):
         self.assertEqual(p["WINEDEBUG"], "-all")
         self.assertEqual(p["Symlinks In User Folder"], 0)
 
-    def test_renderizador_wined3d_desliga_todos(self):
-        p = self._plist(self._montar(replace(RECEITA, renderizador="wined3d")))
+    def test_wined3d_renderer_turns_all_off(self):
+        p = self._plist(self._build(replace(RECIPE, renderer="wined3d")))
         self.assertEqual((p["D9VK"], p["DXVK"], p["D3DMETAL"]), (0, 0, 0))
 
-    def test_remontar_substitui(self):
-        app = self._montar()
-        (app / "Contents" / "lixo.txt").write_text("velho")
-        app2 = self._montar()
+    def test_rebuild_replaces(self):
+        app = self._build()
+        (app / "Contents" / "junk.txt").write_text("old")
+        app2 = self._build()
         self.assertEqual(app2, app)
-        self.assertFalse((app / "Contents" / "lixo.txt").exists())
+        self.assertFalse((app / "Contents" / "junk.txt").exists())
         self.assertFalse((app / "Carros.app").exists())
-        self.assertEqual(sorted(p.name for p in self.saida.iterdir()), ["Carros.app"])
+        self.assertEqual(sorted(p.name for p in self.output.iterdir()), ["Carros.app"])
 
-    def test_plist_sem_caminho_absoluto(self):
-        p = self._plist(self._montar())
-        for chave, valor in p.items():
-            if isinstance(valor, str):
-                self.assertNotIn(str(self.saida), valor, chave)
+    def test_plist_without_absolute_path(self):
+        p = self._plist(self._build())
+        for key, value in p.items():
+            if isinstance(value, str):
+                self.assertNotIn(str(self.output), value, key)
 
 
-class TestSubstituirApp(unittest.TestCase):
+class TestReplaceApp(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
-        self.novo = self.tmp / "trabalho" / "Carros.app"
-        (self.novo / "Contents").mkdir(parents=True)
-        (self.novo / "Contents" / "marca").write_text("novo")
+        self.new = self.tmp / "workdir" / "Carros.app"
+        (self.new / "Contents").mkdir(parents=True)
+        (self.new / "Contents" / "marker").write_text("new")
         self.final = self.tmp / "build" / "Carros.app"
         self.final.parent.mkdir()
 
-    def test_sem_app_anterior(self):
-        substituir_app(self.novo, self.final)
-        self.assertEqual((self.final / "Contents" / "marca").read_text(), "novo")
-        self.assertFalse(self.novo.exists())
+    def test_no_previous_app(self):
+        replace_app(self.new, self.final)
+        self.assertEqual((self.final / "Contents" / "marker").read_text(), "new")
+        self.assertFalse(self.new.exists())
 
-    def test_troca_e_apaga_o_velho(self):
+    def test_swaps_and_deletes_the_old_one(self):
         (self.final / "Contents").mkdir(parents=True)
-        (self.final / "Contents" / "marca").write_text("velho")
-        substituir_app(self.novo, self.final)
-        self.assertEqual((self.final / "Contents" / "marca").read_text(), "novo")
+        (self.final / "Contents" / "marker").write_text("old")
+        replace_app(self.new, self.final)
+        self.assertEqual((self.final / "Contents" / "marker").read_text(), "new")
         self.assertEqual([p.name for p in self.final.parent.iterdir()], ["Carros.app"])
 
-    def test_falha_na_troca_devolve_o_velho(self):
+    def test_failed_swap_gives_the_old_one_back(self):
         (self.final / "Contents").mkdir(parents=True)
-        (self.final / "Contents" / "marca").write_text("velho")
+        (self.final / "Contents" / "marker").write_text("old")
         with self.assertRaises(OSError):
-            substituir_app(self.tmp / "nao-existe.app", self.final)
-        self.assertEqual((self.final / "Contents" / "marca").read_text(), "velho")
+            replace_app(self.tmp / "does-not-exist.app", self.final)
+        self.assertEqual((self.final / "Contents" / "marker").read_text(), "old")
 
 
 if __name__ == "__main__":

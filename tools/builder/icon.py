@@ -1,4 +1,4 @@
-"""Extrai o ícone do .exe (RT_GROUP_ICON/RT_ICON) e converte para .icns com sips + iconutil."""
+"""Extracts the icon from the .exe (RT_GROUP_ICON/RT_ICON) and converts it to .icns with sips + iconutil."""
 import shutil
 import struct
 import subprocess
@@ -7,88 +7,88 @@ from pathlib import Path
 
 RT_ICON = 3
 RT_GROUP_ICON = 14
-TAMANHOS_ICONSET = (16, 32, 128, 256, 512)
+ICONSET_SIZES = (16, 32, 128, 256, 512)
 
 
-def _recursos(dados: bytes) -> dict[int, dict[int, bytes]]:
-    """{tipo: {id: bytes}} do diretório de recursos do PE (primeiro idioma de cada id). Vazio se não houver."""
-    e = struct.unpack_from("<I", dados, 0x3C)[0]
-    nsec = struct.unpack_from("<H", dados, e + 6)[0]
-    tam_opt = struct.unpack_from("<H", dados, e + 20)[0]
+def _resources(data: bytes) -> dict[int, dict[int, bytes]]:
+    """{type: {id: bytes}} from the PE resource directory (first language of each id). Empty if there is none."""
+    e = struct.unpack_from("<I", data, 0x3C)[0]
+    n_sections = struct.unpack_from("<H", data, e + 6)[0]
+    opt_size = struct.unpack_from("<H", data, e + 20)[0]
     opt = e + 24
-    magic = struct.unpack_from("<H", dados, opt)[0]
-    diretorios = opt + (96 if magic == 0x10B else 112)
-    if struct.unpack_from("<I", dados, diretorios - 4)[0] <= 2:
+    magic = struct.unpack_from("<H", data, opt)[0]
+    directories = opt + (96 if magic == 0x10B else 112)
+    if struct.unpack_from("<I", data, directories - 4)[0] <= 2:
         return {}
-    rva_rsrc = struct.unpack_from("<I", dados, diretorios + 8 * 2)[0]
+    rva_rsrc = struct.unpack_from("<I", data, directories + 8 * 2)[0]
     if rva_rsrc == 0:
         return {}
-    secoes = [struct.unpack_from("<IIII", dados, opt + tam_opt + 40 * i + 8) for i in range(nsec)]
+    sections = [struct.unpack_from("<IIII", data, opt + opt_size + 40 * i + 8) for i in range(n_sections)]
 
     def offset(rva):
-        for vs, va, rs, ro in secoes:
+        for vs, va, rs, ro in sections:
             if va <= rva < va + max(vs, rs):
                 return rva - va + ro
-        raise ValueError(f"RVA {rva:#x} fora das seções")
+        raise ValueError(f"RVA {rva:#x} outside the sections")
 
     base = offset(rva_rsrc)
 
-    def entradas(o):
-        nomeadas, ids = struct.unpack_from("<HH", dados, o + 12)
-        for i in range(nomeadas + ids):
-            yield struct.unpack_from("<II", dados, o + 16 + 8 * i)
+    def entries(o):
+        named, ids = struct.unpack_from("<HH", data, o + 12)
+        for i in range(named + ids):
+            yield struct.unpack_from("<II", data, o + 16 + 8 * i)
 
-    resultado: dict[int, dict[int, bytes]] = {}
-    for tipo, p1 in entradas(base):
+    result: dict[int, dict[int, bytes]] = {}
+    for rtype, p1 in entries(base):
         if not p1 & 0x80000000:
             continue
-        for ident, p2 in entradas(base + (p1 & 0x7FFFFFFF)):
-            alvo = p2
-            if alvo & 0x80000000:  # nível de idioma: pega o primeiro
-                alvo = next(entradas(base + (alvo & 0x7FFFFFFF)))[1]
-            rva, tam = struct.unpack_from("<II", dados, base + alvo)
-            resultado.setdefault(tipo, {})[ident] = dados[offset(rva):offset(rva) + tam]
-    return resultado
+        for res_id, p2 in entries(base + (p1 & 0x7FFFFFFF)):
+            target = p2
+            if target & 0x80000000:  # language level: take the first
+                target = next(entries(base + (target & 0x7FFFFFFF)))[1]
+            rva, size = struct.unpack_from("<II", data, base + target)
+            result.setdefault(rtype, {})[res_id] = data[offset(rva):offset(rva) + size]
+    return result
 
 
-def _ico_do_maior(recursos: dict[int, dict[int, bytes]]) -> bytes | None:
-    grupos = recursos.get(RT_GROUP_ICON, {})
-    icones = recursos.get(RT_ICON, {})
-    if not grupos or not icones:
+def _ico_of_largest(resources: dict[int, dict[int, bytes]]) -> bytes | None:
+    groups = resources.get(RT_GROUP_ICON, {})
+    icons = resources.get(RT_ICON, {})
+    if not groups or not icons:
         return None
-    grupo = next(iter(grupos.values()))
-    qtd = struct.unpack_from("<H", grupo, 4)[0]
-    escolhido = None
-    for i in range(qtd):
-        w, h, cores, res, planos, bits, tam, ident = struct.unpack_from("<BBBBHHIH", grupo, 6 + 14 * i)
-        lado = w or 256
-        if ident in icones and (escolhido is None or lado > escolhido[0]):
-            escolhido = (lado, struct.pack("<BBBBHHII", w, h, cores, res, planos, bits, len(icones[ident]), 22), icones[ident])
-    if escolhido is None:
+    group = next(iter(groups.values()))
+    count = struct.unpack_from("<H", group, 4)[0]
+    chosen = None
+    for i in range(count):
+        w, h, colors, reserved, planes, bits, size, res_id = struct.unpack_from("<BBBBHHIH", group, 6 + 14 * i)
+        side = w or 256
+        if res_id in icons and (chosen is None or side > chosen[0]):
+            chosen = (side, struct.pack("<BBBBHHII", w, h, colors, reserved, planes, bits, len(icons[res_id]), 22), icons[res_id])
+    if chosen is None:
         return None
-    return struct.pack("<HHH", 0, 1, 1) + escolhido[1] + escolhido[2]
+    return struct.pack("<HHH", 0, 1, 1) + chosen[1] + chosen[2]
 
 
-def extrair_icone(exe: Path, destino_icns: Path) -> bool:
+def extract_icon(exe: Path, target_icns: Path) -> bool:
     try:
-        ico = _ico_do_maior(_recursos(Path(exe).read_bytes()))
+        ico = _ico_of_largest(_resources(Path(exe).read_bytes()))
     except (struct.error, ValueError):
         return False
     if ico is None:
         return False
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
-        (tmp / "icone.ico").write_bytes(ico)
-        png = tmp / "icone.png"
-        subprocess.run(["sips", "-s", "format", "png", str(tmp / "icone.ico"), "--out", str(png)], check=True, capture_output=True)
-        iconset = tmp / "icone.iconset"
+        (tmp / "icon.ico").write_bytes(ico)
+        png = tmp / "icon.png"
+        subprocess.run(["sips", "-s", "format", "png", str(tmp / "icon.ico"), "--out", str(png)], check=True, capture_output=True)
+        iconset = tmp / "icon.iconset"
         iconset.mkdir()
-        for lado in TAMANHOS_ICONSET:
-            for escala, sufixo in ((1, ""), (2, "@2x")):
-                saida = iconset / f"icon_{lado}x{lado}{sufixo}.png"
-                subprocess.run(["sips", "-z", str(lado * escala), str(lado * escala), str(png), "--out", str(saida)],
+        for side in ICONSET_SIZES:
+            for scale, suffix in ((1, ""), (2, "@2x")):
+                output = iconset / f"icon_{side}x{side}{suffix}.png"
+                subprocess.run(["sips", "-z", str(side * scale), str(side * scale), str(png), "--out", str(output)],
                                check=True, capture_output=True)
-        subprocess.run(["iconutil", "-c", "icns", str(iconset), "-o", str(tmp / "icone.icns")], check=True, capture_output=True)
-        destino_icns.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(tmp / "icone.icns", destino_icns)
+        subprocess.run(["iconutil", "-c", "icns", str(iconset), "-o", str(tmp / "icon.icns")], check=True, capture_output=True)
+        target_icns.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(tmp / "icon.icns", target_icns)
     return True

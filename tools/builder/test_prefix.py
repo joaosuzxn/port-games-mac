@@ -9,201 +9,201 @@ from unittest import mock
 from dataclasses import replace
 from pathlib import Path
 
-from prefix import JogoInvalido, aplicar_registro, configurar_drive_cd, copiar_jogo, ligar_saves, relocar_registro
-from prefix import PrefixoFalhou, parar_wine
-from recipe import ChaveRegistro, carregar_receita
+from prefix import InvalidGame, apply_registry, setup_cd_drive, copy_game, link_saves, relocate_registry
+from prefix import PrefixFailed, stop_wine
+from recipe import RegistryKey, load_recipe
 
-RECEITA = carregar_receita(Path(__file__).parent / "recipes" / "carros.json")
+RECIPE = load_recipe(Path(__file__).parent / "recipes" / "carros.json")
 
 
-class TestCopiarJogo(unittest.TestCase):
+class TestCopyGame(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
-        self.jogo = self.tmp / "jogo"
-        for pasta in ("_jvm/bin", "_uninst", "_CommonRedist/DirectX", "steamapps", "bak", "Data/AppStart"):
-            (self.jogo / pasta).mkdir(parents=True)
-        (self.jogo / "Cars.exe").write_bytes(b"com steamstub")
-        (self.jogo / "bak" / "Cars.exe").write_bytes(b"sem drm")
-        (self.jogo / "THQ Website.url").write_text("x")
-        (self.jogo / "binkw32.dll").write_bytes(b"bink")
-        (self.jogo / "Data" / "Global.pak").write_bytes(b"pak")
-        self.receita = replace(RECEITA, sha1_exe=hashlib.sha1(b"sem drm").hexdigest(),
-                               arquivos_obrigatorios=("Data/Global.pak", "binkw32.dll"))
-        self.destino = self.tmp / "drive_c" / "Games" / "Carros"
+        self.game = self.tmp / "game"
+        for folder in ("_jvm/bin", "_uninst", "_CommonRedist/DirectX", "steamapps", "bak", "Data/AppStart"):
+            (self.game / folder).mkdir(parents=True)
+        (self.game / "Cars.exe").write_bytes(b"with steamstub")
+        (self.game / "bak" / "Cars.exe").write_bytes(b"no drm")
+        (self.game / "THQ Website.url").write_text("x")
+        (self.game / "binkw32.dll").write_bytes(b"bink")
+        (self.game / "Data" / "Global.pak").write_bytes(b"pak")
+        self.recipe = replace(RECIPE, exe_sha1=hashlib.sha1(b"no drm").hexdigest(),
+                              required_files=("Data/Global.pak", "binkw32.dll"))
+        self.target = self.tmp / "drive_c" / "Games" / "Carros"
 
-    def test_copia_sem_excluidos(self):
-        copiar_jogo(self.jogo, self.destino, self.receita)
-        nomes = {p.name for p in self.destino.iterdir()}
-        for excluido in ("_jvm", "_uninst", "_CommonRedist", "steamapps", "bak", "THQ Website.url"):
-            self.assertNotIn(excluido, nomes)
-        self.assertEqual((self.destino / "Cars.exe").read_bytes(), b"sem drm")
-        self.assertEqual((self.destino / "Data" / "Global.pak").read_bytes(), b"pak")
-        self.assertTrue((self.destino / "binkw32.dll").exists())
+    def test_copies_without_excluded(self):
+        copy_game(self.game, self.target, self.recipe)
+        names = {p.name for p in self.target.iterdir()}
+        for excluded in ("_jvm", "_uninst", "_CommonRedist", "steamapps", "bak", "THQ Website.url"):
+            self.assertNotIn(excluded, names)
+        self.assertEqual((self.target / "Cars.exe").read_bytes(), b"no drm")
+        self.assertEqual((self.target / "Data" / "Global.pak").read_bytes(), b"pak")
+        self.assertTrue((self.target / "binkw32.dll").exists())
 
-    def test_hash_errado_nao_copia(self):
-        (self.jogo / "bak" / "Cars.exe").write_bytes(b"outro build")
-        with self.assertRaises(JogoInvalido):
-            copiar_jogo(self.jogo, self.destino, self.receita)
-        self.assertFalse(self.destino.exists())
+    def test_wrong_hash_does_not_copy(self):
+        (self.game / "bak" / "Cars.exe").write_bytes(b"other build")
+        with self.assertRaises(InvalidGame):
+            copy_game(self.game, self.target, self.recipe)
+        self.assertFalse(self.target.exists())
 
-    def test_jogo_incompleto_nao_copia(self):
-        (self.jogo / "Data" / "Global.pak").unlink()
-        with self.assertRaises(JogoInvalido) as ctx:
-            copiar_jogo(self.jogo, self.destino, self.receita)
+    def test_incomplete_game_does_not_copy(self):
+        (self.game / "Data" / "Global.pak").unlink()
+        with self.assertRaises(InvalidGame) as ctx:
+            copy_game(self.game, self.target, self.recipe)
         self.assertIn("Data/Global.pak", str(ctx.exception))
         self.assertIn("steamcmd", str(ctx.exception))
-        self.assertFalse(self.destino.exists())
+        self.assertFalse(self.target.exists())
 
-    def test_jogo_ausente(self):
-        with self.assertRaises(JogoInvalido) as ctx:
-            copiar_jogo(self.tmp / "nao-existe", self.destino, self.receita)
+    def test_missing_game(self):
+        with self.assertRaises(InvalidGame) as ctx:
+            copy_game(self.tmp / "does-not-exist", self.target, self.recipe)
         self.assertIn("steamcmd", str(ctx.exception))
-        self.assertFalse(self.destino.exists())
+        self.assertFalse(self.target.exists())
 
 
-class TestPrefixo(unittest.TestCase):
+class TestPrefix(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
-        self.prefixo = self.tmp / "prefix"
-        (self.prefixo / "dosdevices").mkdir(parents=True)
-        (self.prefixo / "drive_c" / "Games" / "Carros").mkdir(parents=True)
-        (self.prefixo / "system.reg").write_text("WINE REGISTRY Version 2\n;; All keys relative to \\\\Machine\n\n"
-                                                 "[Software\\\\Wine\\\\Drives] 1700000000\n#time=1\n\"c:\"=\"hd\"\n\n"
-                                                 "[System\\\\Outra] 1700000000\n\"x\"=dword:00000002\n")
-        (self.prefixo / "user.reg").write_text("WINE REGISTRY Version 2\n;; All keys relative to \\\\User\\\\S-1-5-21-0-0-0-1000\n")
+        self.prefix = self.tmp / "prefix"
+        (self.prefix / "dosdevices").mkdir(parents=True)
+        (self.prefix / "drive_c" / "Games" / "Carros").mkdir(parents=True)
+        (self.prefix / "system.reg").write_text("WINE REGISTRY Version 2\n;; All keys relative to \\\\Machine\n\n"
+                                                "[Software\\\\Wine\\\\Drives] 1700000000\n#time=1\n\"c:\"=\"hd\"\n\n"
+                                                "[System\\\\Other] 1700000000\n\"x\"=dword:00000002\n")
+        (self.prefix / "user.reg").write_text("WINE REGISTRY Version 2\n;; All keys relative to \\\\User\\\\S-1-5-21-0-0-0-1000\n")
 
-    def test_drive_cd(self):
-        configurar_drive_cd(self.prefixo, "Games/Carros", "DISC2")
-        link = self.prefixo / "dosdevices" / "d:"
+    def test_cd_drive(self):
+        setup_cd_drive(self.prefix, "Games/Carros", "DISC2")
+        link = self.prefix / "dosdevices" / "d:"
         self.assertTrue(link.is_symlink())
         self.assertFalse(os.path.isabs(os.readlink(link)))
-        self.assertEqual(link.resolve(), (self.prefixo / "drive_c" / "Games" / "Carros").resolve())
-        self.assertEqual((self.prefixo / "drive_c" / "Games" / "Carros" / ".windows-label").read_text().strip(), "DISC2")
+        self.assertEqual(link.resolve(), (self.prefix / "drive_c" / "Games" / "Carros").resolve())
+        self.assertEqual((self.prefix / "drive_c" / "Games" / "Carros" / ".windows-label").read_text().strip(), "DISC2")
 
-    def test_registro_formato(self):
-        aplicar_registro(self.prefixo, [
-            ChaveRegistro("system", r"Software\Wine\Drives", {"d:": "cdrom"}),
-            ChaveRegistro("system", r"System\CurrentControlSet\Services\winebus", {"Enable SDL": 1}),
-            ChaveRegistro("user", r"Software\Wine\Explorer", {"Desktop": "Default"}),
+    def test_registry_format(self):
+        apply_registry(self.prefix, [
+            RegistryKey("system", r"Software\Wine\Drives", {"d:": "cdrom"}),
+            RegistryKey("system", r"System\CurrentControlSet\Services\winebus", {"Enable SDL": 1}),
+            RegistryKey("user", r"Software\Wine\Explorer", {"Desktop": "Default"}),
         ])
-        sistema = (self.prefixo / "system.reg").read_text()
-        self.assertIn('"c:"="hd"', sistema)
-        self.assertIn('"d:"="cdrom"', sistema)
-        self.assertIn("[System\\\\CurrentControlSet\\\\Services\\\\winebus]", sistema)
-        self.assertIn('"Enable SDL"=dword:00000001', sistema)
-        self.assertIn('"x"=dword:00000002', sistema)
-        self.assertIn('[Software\\\\Wine\\\\Explorer]', (self.prefixo / "user.reg").read_text())
-        # o valor novo entra na seção existente, não numa seção nova
-        secao = sistema.split("[Software\\\\Wine\\\\Drives]")[1].split("\n[")[0]
-        self.assertIn('"d:"="cdrom"', secao)
+        system = (self.prefix / "system.reg").read_text()
+        self.assertIn('"c:"="hd"', system)
+        self.assertIn('"d:"="cdrom"', system)
+        self.assertIn("[System\\\\CurrentControlSet\\\\Services\\\\winebus]", system)
+        self.assertIn('"Enable SDL"=dword:00000001', system)
+        self.assertIn('"x"=dword:00000002', system)
+        self.assertIn('[Software\\\\Wine\\\\Explorer]', (self.prefix / "user.reg").read_text())
+        # the new value goes into the existing section, not into a new one
+        section = system.split("[Software\\\\Wine\\\\Drives]")[1].split("\n[")[0]
+        self.assertIn('"d:"="cdrom"', section)
 
-    def test_registro_idempotente(self):
-        chaves = [ChaveRegistro("system", r"Software\Wine\Drives", {"d:": "cdrom"}),
-                  ChaveRegistro("user", r"Software\Wine\Explorer\Desktops", {"Default": "1280x720"})]
-        aplicar_registro(self.prefixo, chaves)
-        aplicar_registro(self.prefixo, chaves)
-        aplicar_registro(self.prefixo, [ChaveRegistro("user", r"Software\Wine\Explorer\Desktops", {"Default": "2560x1664"})])
-        sistema = (self.prefixo / "system.reg").read_text()
-        usuario = (self.prefixo / "user.reg").read_text()
-        self.assertEqual(sistema.count("[Software\\\\Wine\\\\Drives]"), 1)
-        self.assertEqual(sistema.count('"d:"='), 1)
-        self.assertEqual(usuario.count("[Software\\\\Wine\\\\Explorer\\\\Desktops]"), 1)
-        self.assertIn('"Default"="2560x1664"', usuario)
-        self.assertNotIn("1280x720", usuario)
+    def test_registry_idempotent(self):
+        keys = [RegistryKey("system", r"Software\Wine\Drives", {"d:": "cdrom"}),
+                RegistryKey("user", r"Software\Wine\Explorer\Desktops", {"Default": "1280x720"})]
+        apply_registry(self.prefix, keys)
+        apply_registry(self.prefix, keys)
+        apply_registry(self.prefix, [RegistryKey("user", r"Software\Wine\Explorer\Desktops", {"Default": "2560x1664"})])
+        system = (self.prefix / "system.reg").read_text()
+        user = (self.prefix / "user.reg").read_text()
+        self.assertEqual(system.count("[Software\\\\Wine\\\\Drives]"), 1)
+        self.assertEqual(system.count('"d:"='), 1)
+        self.assertEqual(user.count("[Software\\\\Wine\\\\Explorer\\\\Desktops]"), 1)
+        self.assertIn('"Default"="2560x1664"', user)
+        self.assertNotIn("1280x720", user)
 
 
-class TestRelocarRegistro(unittest.TestCase):
+class TestRelocateRegistry(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
-        self.de = self.tmp / "build com espaço" / "Carros.app"
-        self.para = Path("/Applications/Carros.app")
-        self.prefixo = self.tmp / "prefix"
-        self.prefixo.mkdir()
-        esc = "Z:" + str(self.de).replace("/", "\\\\")
+        self.old = self.tmp / "build with space ü" / "Carros.app"  # space and a non-ASCII character in the path
+        self.new = Path("/Applications/Carros.app")
+        self.prefix = self.tmp / "prefix"
+        self.prefix.mkdir()
+        esc = "Z:" + str(self.old).replace("/", "\\\\")
         self.esc = esc
-        (self.prefixo / "system.reg").write_text(
+        (self.prefix / "system.reg").write_text(
             f'[Software\\\\Microsoft\\\\Fonts] 1\n"Marlett"="{esc}\\\\Contents\\\\fonts\\\\marlett.ttf"\n'
-            f'"Outro"="Z:\\\\Users\\\\x\\\\build com espaço\\\\Carros.app2\\\\a"\n')
-        (self.prefixo / "user.reg").write_text(
-            f'"InstallSource"="{self.de}/Contents/mono"\n"Barra"="Z:{self.de}/x"\n"Sem"="C:\\\\windows"\n')
+            f'"Other"="Z:\\\\Users\\\\x\\\\build with space ü\\\\Carros.app2\\\\a"\n')
+        (self.prefix / "user.reg").write_text(
+            f'"InstallSource"="{self.old}/Contents/mono"\n"Slash"="Z:{self.old}/x"\n"Without"="C:\\\\windows"\n')
 
-    def test_troca_as_formas_do_caminho(self):
-        relocar_registro(self.prefixo, self.de, self.para)
-        sistema = (self.prefixo / "system.reg").read_text()
-        usuario = (self.prefixo / "user.reg").read_text()
-        self.assertIn('"Marlett"="Z:\\\\Applications\\\\Carros.app\\\\Contents\\\\fonts\\\\marlett.ttf"', sistema)
-        self.assertNotIn("build com", sistema.split("\n")[1])
-        self.assertIn('"InstallSource"="/Applications/Carros.app/Contents/mono"', usuario)
-        self.assertIn('"Barra"="Z:/Applications/Carros.app/x"', usuario)
-        self.assertIn('"Sem"="C:\\\\windows"', usuario)
+    def test_replaces_the_path_forms(self):
+        relocate_registry(self.prefix, self.old, self.new)
+        system = (self.prefix / "system.reg").read_text()
+        user = (self.prefix / "user.reg").read_text()
+        self.assertIn('"Marlett"="Z:\\\\Applications\\\\Carros.app\\\\Contents\\\\fonts\\\\marlett.ttf"', system)
+        self.assertNotIn("build with", system.split("\n")[1])
+        self.assertIn('"InstallSource"="/Applications/Carros.app/Contents/mono"', user)
+        self.assertIn('"Slash"="Z:/Applications/Carros.app/x"', user)
+        self.assertIn('"Without"="C:\\\\windows"', user)
 
-    def test_nao_toca_em_nome_parecido(self):
-        relocar_registro(self.prefixo, self.de, self.para)
-        self.assertIn("Carros.app2", (self.prefixo / "system.reg").read_text())
+    def test_does_not_touch_similar_names(self):
+        relocate_registry(self.prefix, self.old, self.new)
+        self.assertIn("Carros.app2", (self.prefix / "system.reg").read_text())
 
-    def test_aceita_caminho_nao_resolvido(self):
+    def test_accepts_unresolved_path(self):
         real = self.tmp / "real" / "Carros.app"
         real.mkdir(parents=True)
-        link = self.tmp / "atalho.app"
+        link = self.tmp / "shortcut.app"
         link.symlink_to(real)
-        (self.prefixo / "user.reg").write_text(f'"x"="{real.resolve()}/Contents"\n')
-        relocar_registro(self.prefixo, link, self.para)
-        self.assertEqual((self.prefixo / "user.reg").read_text(), '"x"="/Applications/Carros.app/Contents"\n')
+        (self.prefix / "user.reg").write_text(f'"x"="{real.resolve()}/Contents"\n')
+        relocate_registry(self.prefix, link, self.new)
+        self.assertEqual((self.prefix / "user.reg").read_text(), '"x"="/Applications/Carros.app/Contents"\n')
 
 
 class TestSaves(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
-        self.prefixo = self.tmp / "prefix"
-        self.docs_mac = self.tmp / "Documents"
-        save = self.docs_mac / "THQ" / "Cars" / "Save"
+        self.prefix = self.tmp / "prefix"
+        self.mac_docs = self.tmp / "Documents"
+        save = self.mac_docs / "THQ" / "Cars" / "Save"
         save.mkdir(parents=True)
-        (save / "slot1").write_text("progresso")
-        (self.docs_mac / "pessoal.txt").write_text("não é do jogo")
-        usuario = self.prefixo / "drive_c" / "users" / "joao"
-        usuario.mkdir(parents=True)
-        (self.prefixo / "drive_c" / "users" / "Public").mkdir()
-        os.symlink(self.docs_mac, usuario / "Documents")  # como o Wine cria por padrão
+        (save / "slot1").write_text("progress")
+        (self.mac_docs / "personal.txt").write_text("not part of the game")
+        user = self.prefix / "drive_c" / "users" / "user"
+        user.mkdir(parents=True)
+        (self.prefix / "drive_c" / "users" / "Public").mkdir()
+        os.symlink(self.mac_docs, user / "Documents")  # as Wine creates it by default
 
-    def test_saves_preservados(self):
-        ligar_saves(self.prefixo, "THQ", self.docs_mac)
-        docs_win = self.prefixo / "drive_c" / "users" / "joao" / "Documents"
-        self.assertFalse(docs_win.is_symlink())
-        self.assertTrue((docs_win / "THQ").is_symlink())
-        self.assertEqual((docs_win / "THQ" / "Cars" / "Save" / "slot1").read_text(), "progresso")
-        self.assertFalse((docs_win / "pessoal.txt").exists())
-        ligar_saves(self.prefixo, "THQ", self.docs_mac)  # remontar
-        shutil.rmtree(self.prefixo)  # apagar o app
-        self.assertEqual((self.docs_mac / "THQ" / "Cars" / "Save" / "slot1").read_text(), "progresso")
-        self.assertTrue((self.docs_mac / "pessoal.txt").exists())
+    def test_saves_preserved(self):
+        link_saves(self.prefix, "THQ", self.mac_docs)
+        win_docs = self.prefix / "drive_c" / "users" / "user" / "Documents"
+        self.assertFalse(win_docs.is_symlink())
+        self.assertTrue((win_docs / "THQ").is_symlink())
+        self.assertEqual((win_docs / "THQ" / "Cars" / "Save" / "slot1").read_text(), "progress")
+        self.assertFalse((win_docs / "personal.txt").exists())
+        link_saves(self.prefix, "THQ", self.mac_docs)  # rebuild
+        shutil.rmtree(self.prefix)  # delete the app
+        self.assertEqual((self.mac_docs / "THQ" / "Cars" / "Save" / "slot1").read_text(), "progress")
+        self.assertTrue((self.mac_docs / "personal.txt").exists())
 
-    def test_cria_pasta_de_saves_se_nao_existe(self):
-        shutil.rmtree(self.docs_mac / "THQ")
-        ligar_saves(self.prefixo, "THQ", self.docs_mac)
-        self.assertTrue((self.docs_mac / "THQ").is_dir())
+    def test_creates_saves_folder_if_missing(self):
+        shutil.rmtree(self.mac_docs / "THQ")
+        link_saves(self.prefix, "THQ", self.mac_docs)
+        self.assertTrue((self.mac_docs / "THQ").is_dir())
 
-    def test_usuario_symlink_para_fora_nao_apaga_nada(self):
-        externo = self.tmp / "externo"
-        (externo / "Documents" / "THQ").mkdir(parents=True)
-        (externo / "Documents" / "THQ" / "importante").write_text("dado real")
-        (self.prefixo / "drive_c" / "users" / "joao" / "Documents").unlink()
-        (self.prefixo / "drive_c" / "users" / "joao").rmdir()
-        os.symlink(externo, self.prefixo / "drive_c" / "users" / "joao")
-        with self.assertRaises(PrefixoFalhou) as ctx:
-            ligar_saves(self.prefixo, "THQ", self.docs_mac)
-        self.assertIn("fora do prefixo", str(ctx.exception))
-        self.assertEqual((externo / "Documents" / "THQ" / "importante").read_text(), "dado real")
-        self.assertEqual((self.docs_mac / "THQ" / "Cars" / "Save" / "slot1").read_text(), "progresso")
+    def test_user_symlink_outside_deletes_nothing(self):
+        external = self.tmp / "external"
+        (external / "Documents" / "THQ").mkdir(parents=True)
+        (external / "Documents" / "THQ" / "important").write_text("real data")
+        (self.prefix / "drive_c" / "users" / "user" / "Documents").unlink()
+        (self.prefix / "drive_c" / "users" / "user").rmdir()
+        os.symlink(external, self.prefix / "drive_c" / "users" / "user")
+        with self.assertRaises(PrefixFailed) as ctx:
+            link_saves(self.prefix, "THQ", self.mac_docs)
+        self.assertIn("outside the prefix", str(ctx.exception))
+        self.assertEqual((external / "Documents" / "THQ" / "important").read_text(), "real data")
+        self.assertEqual((self.mac_docs / "THQ" / "Cars" / "Save" / "slot1").read_text(), "progress")
 
-    def test_usuarios_duplicados_por_symlink_sao_unicos(self):
-        os.symlink(self.prefixo / "drive_c" / "users" / "joao", self.prefixo / "drive_c" / "users" / "alias")
-        ligar_saves(self.prefixo, "THQ", self.docs_mac)
-        self.assertEqual((self.docs_mac / "THQ" / "Cars" / "Save" / "slot1").read_text(), "progresso")
+    def test_users_duplicated_by_symlink_are_unique(self):
+        os.symlink(self.prefix / "drive_c" / "users" / "user", self.prefix / "drive_c" / "users" / "alias")
+        link_saves(self.prefix, "THQ", self.mac_docs)
+        self.assertEqual((self.mac_docs / "THQ" / "Cars" / "Save" / "slot1").read_text(), "progress")
 
 
-class TestPararWine(unittest.TestCase):
+class TestStopWine(unittest.TestCase):
     def setUp(self):
-        self.app = Path(tempfile.mkdtemp()).resolve() / "Teste.app"
+        self.app = Path(tempfile.mkdtemp()).resolve() / "Test.app"
         launcher = self.app / "Contents" / "MacOS" / "wineskinlauncher"
         launcher.parent.mkdir(parents=True)
         launcher.write_text("#!/bin/sh\nexit 0\n")
@@ -211,46 +211,46 @@ class TestPararWine(unittest.TestCase):
         self.procs = []
         self.addCleanup(lambda: [(p.kill(), p.wait()) for p in self.procs])
 
-    def _iniciar(self, argv):
+    def _start(self, argv):
         p = subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.procs.append(p)
         time.sleep(0.5)
         return p
 
-    def test_nao_mata_processo_que_so_cita_o_app_no_argumento(self):
-        p = self._iniciar(["sh", "-c", "sleep 30", str(self.app / "Contents" / "qualquer")])
-        parar_wine(self.app, tempo_max=1)
+    def test_does_not_kill_a_process_that_only_mentions_the_app_in_an_argument(self):
+        p = self._start(["sh", "-c", "sleep 30", str(self.app / "Contents" / "anything")])
+        stop_wine(self.app, max_time=1)
         self.assertIsNone(p.poll())
 
-    def test_mata_processo_executado_de_dentro_do_app(self):
+    def test_kills_process_executed_from_inside_the_app(self):
         fake = self.app / "Contents" / "SharedSupport" / "wine" / "wineserver"
         fake.parent.mkdir(parents=True)
         fake.symlink_to("/bin/sleep")
-        p = self._iniciar([str(fake), "30"])
-        parar_wine(self.app, tempo_max=1)
+        p = self._start([str(fake), "30"])
+        stop_wine(self.app, max_time=1)
         self.assertIsNotNone(p.wait(timeout=5))
 
-    def test_sem_launcher_nao_quebra(self):
+    def test_without_launcher_does_not_break(self):
         (self.app / "Contents" / "MacOS" / "wineskinlauncher").unlink()
-        parar_wine(self.app, tempo_max=1)
+        stop_wine(self.app, max_time=1)
 
-    def test_processo_que_resiste_ao_sigkill_vira_erro(self):
-        with mock.patch("prefix._processos_do_app", return_value=[os.getpid() + 999999]), \
+    def test_process_that_resists_sigkill_becomes_an_error(self):
+        with mock.patch("prefix._app_processes", return_value=[os.getpid() + 999999]), \
                 mock.patch("prefix.os.kill"), mock.patch("prefix.time.sleep"):
-            with self.assertRaises(PrefixoFalhou):
-                parar_wine(self.app, tempo_max=0)
+            with self.assertRaises(PrefixFailed):
+                stop_wine(self.app, max_time=0)
 
 
-class TestCriarPrefixoTempo(unittest.TestCase):
-    def test_launcher_travado_vira_erro(self):
-        from prefix import PrefixoFalhou, criar_prefixo
-        app = Path(tempfile.mkdtemp()) / "Teste.app"
+class TestCreatePrefixTimeout(unittest.TestCase):
+    def test_stuck_launcher_becomes_an_error(self):
+        from prefix import PrefixFailed, create_prefix
+        app = Path(tempfile.mkdtemp()) / "Test.app"
         launcher = app / "Contents" / "MacOS" / "wineskinlauncher"
         launcher.parent.mkdir(parents=True)
         launcher.write_text('#!/bin/sh\n[ "$1" = "WSS-wineprefixcreate" ] && sleep 30\nexit 0\n')
         launcher.chmod(0o755)
-        with self.assertRaises(PrefixoFalhou) as ctx:
-            criar_prefixo(app, tempo_max=1)
+        with self.assertRaises(PrefixFailed) as ctx:
+            create_prefix(app, max_time=1)
         self.assertIn("1", str(ctx.exception))
 
 

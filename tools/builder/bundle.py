@@ -1,61 +1,61 @@
-"""Monta o .app a partir do template do Sikarugir e da engine Wine, configurado pela receita."""
+"""Builds the .app from the Sikarugir template and the Wine engine, configured by the recipe."""
 import plistlib
 import shutil
 import subprocess
 import tempfile
 from pathlib import Path
 
-from recipe import Receita
+from recipe import Recipe
 
-# Chave do Info.plist do Sikarugir ligada por cada renderizador; wined3d = todas desligadas.
-CHAVES_RENDERIZADOR = {"d9vk": "D9VK", "d3dmetal": "D3DMETAL"}
-
-
-def _extrair(tar_xz: Path, destino: Path) -> Path:
-    """Extrai com o tar do sistema (preserva links simbólicos dos frameworks) e devolve a raiz única do arquivo."""
-    destino.mkdir(parents=True, exist_ok=True)
-    subprocess.run(["tar", "-xJf", str(tar_xz), "-C", str(destino)], check=True)
-    raizes = [p for p in destino.iterdir() if not p.name.startswith(".")]
-    if len(raizes) != 1:
-        raise RuntimeError(f"{tar_xz.name}: esperava uma pasta raiz, achei {[p.name for p in raizes]}")
-    return raizes[0]
+# Sikarugir Info.plist key turned on by each renderer; wined3d = all of them off.
+RENDERER_PLIST_KEYS = {"d9vk": "D9VK", "d3dmetal": "D3DMETAL"}
 
 
-def configurar_info_plist(plist: Path, receita: Receita) -> None:
+def _extract(tar_xz: Path, target: Path) -> Path:
+    """Extracts with the system tar (preserves the frameworks' symbolic links) and returns the archive's single root."""
+    target.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["tar", "-xJf", str(tar_xz), "-C", str(target)], check=True)
+    roots = [p for p in target.iterdir() if not p.name.startswith(".")]
+    if len(roots) != 1:
+        raise RuntimeError(f"{tar_xz.name}: expected a single root folder, found {[p.name for p in roots]}")
+    return roots[0]
+
+
+def configure_info_plist(plist: Path, recipe: Recipe) -> None:
     with open(plist, "rb") as f:
-        dados = plistlib.load(f)
-    dados["CFBundleName"] = receita.nome_app
-    dados["CFBundleIdentifier"] = receita.bundle_id
-    dados["Program Name and Path"] = f"/Games/{receita.nome_app}/{receita.exe_destino}"
-    for chave in ("D9VK", "DXVK", "D3DMETAL"):
-        dados[chave] = 0
-    if receita.renderizador in CHAVES_RENDERIZADOR:
-        dados[CHAVES_RENDERIZADOR[receita.renderizador]] = 1
-    dados["Debug Mode"] = 0
-    dados["WINEDEBUG"] = "-all"
-    dados["Symlinks In User Folder"] = 0
+        data = plistlib.load(f)
+    data["CFBundleName"] = recipe.app_name
+    data["CFBundleIdentifier"] = recipe.bundle_id
+    data["Program Name and Path"] = f"/Games/{recipe.app_name}/{recipe.exe_target}"
+    for key in ("D9VK", "DXVK", "D3DMETAL"):
+        data[key] = 0
+    if recipe.renderer in RENDERER_PLIST_KEYS:
+        data[RENDERER_PLIST_KEYS[recipe.renderer]] = 1
+    data["Debug Mode"] = 0
+    data["WINEDEBUG"] = "-all"
+    data["Symlinks In User Folder"] = 0
     with open(plist, "wb") as f:
-        plistlib.dump(dados, f)
+        plistlib.dump(data, f)
 
 
-def remover_configuracao(app: Path) -> None:
-    """Tira o Configure.app do bundle final. Só depois de criar o prefixo: o launcher lê remakedefaults.reg dele."""
+def remove_configurator(app: Path) -> None:
+    """Removes Configure.app from the final bundle. Only after creating the prefix: the launcher reads its remakedefaults.reg."""
     shutil.rmtree(app / "Contents" / "Configure.app", ignore_errors=True)
 
 
-def montar_bundle(template: Path, engine_tar: Path, saida: Path, receita: Receita) -> Path:
-    saida.mkdir(parents=True, exist_ok=True)
-    final = saida / f"{receita.nome_app}.app"
-    with tempfile.TemporaryDirectory(dir=saida, prefix=".montando-") as trabalho:
-        trabalho = Path(trabalho)
-        app = _extrair(template, trabalho / "template")
+def build_bundle(template: Path, engine_tar: Path, output: Path, recipe: Recipe) -> Path:
+    output.mkdir(parents=True, exist_ok=True)
+    final = output / f"{recipe.app_name}.app"
+    with tempfile.TemporaryDirectory(dir=output, prefix=".building-") as workdir:
+        workdir = Path(workdir)
+        app = _extract(template, workdir / "template")
         contents = app / "Contents"
-        wine = _extrair(engine_tar, trabalho / "engine")
-        destino_wine = contents / "SharedSupport" / "wine"
-        if destino_wine.exists():
-            shutil.rmtree(destino_wine)
-        wine.rename(destino_wine)
-        configurar_info_plist(contents / "Info.plist", receita)
+        wine = _extract(engine_tar, workdir / "engine")
+        wine_target = contents / "SharedSupport" / "wine"
+        if wine_target.exists():
+            shutil.rmtree(wine_target)
+        wine.rename(wine_target)
+        configure_info_plist(contents / "Info.plist", recipe)
 
         if final.exists():
             shutil.rmtree(final)
@@ -63,18 +63,18 @@ def montar_bundle(template: Path, engine_tar: Path, saida: Path, receita: Receit
     return final
 
 
-def substituir_app(novo: Path, final: Path) -> None:
-    """Põe `novo` no lugar de `final` por rename (mesmo volume). O app antigo só é apagado depois que o novo está no lugar."""
-    velho = None
+def replace_app(new: Path, final: Path) -> None:
+    """Puts `new` in place of `final` by rename (same volume). The old app is only deleted after the new one is in place."""
+    old = None
     if final.exists() or final.is_symlink():
-        velho = final.with_name(f".{final.name}.velho")
-        shutil.rmtree(velho, ignore_errors=True)
-        final.rename(velho)
+        old = final.with_name(f".{final.name}.old")
+        shutil.rmtree(old, ignore_errors=True)
+        final.rename(old)
     try:
-        novo.rename(final)
+        new.rename(final)
     except BaseException:
-        if velho is not None:
-            velho.rename(final)
+        if old is not None:
+            old.rename(final)
         raise
-    if velho is not None:
-        shutil.rmtree(velho, ignore_errors=True)
+    if old is not None:
+        shutil.rmtree(old, ignore_errors=True)

@@ -1,4 +1,4 @@
-"""Prefixo Windows dentro do .app: criação pelo launcher, cópia do jogo, drive de CD, registro e saves."""
+"""Windows prefix inside the .app: creation by the launcher, game copy, CD drive, registry and saves."""
 import hashlib
 import os
 import re
@@ -9,218 +9,218 @@ import time
 from pathlib import Path
 from typing import Iterable
 
-from recipe import ChaveRegistro, Receita
+from recipe import Recipe, RegistryKey
 
-COMANDO_STEAMCMD = (
+STEAMCMD_COMMAND = (
     'steamcmd +@sSteamCmdForcePlatformType windows +force_install_dir "$PWD/jogo" '
-    '+login <sua-conta> +app_update 331160 validate +quit'
+    '+login <your-account> +app_update 331160 validate +quit'
 )
 
 
-class JogoInvalido(Exception):
+class InvalidGame(Exception):
     pass
 
 
-class PrefixoFalhou(Exception):
+class PrefixFailed(Exception):
     pass
 
 
-# --- Wine do bundle -------------------------------------------------------------------
+# --- Wine in the bundle ---------------------------------------------------------------
 
 def _launcher(app: Path) -> Path:
     return app / "Contents" / "MacOS" / "wineskinlauncher"
 
 
-def _processos_do_app(app: Path) -> list[int]:
-    """PIDs de processos cujo EXECUTÁVEL está dentro do bundle (o comando começa com o caminho do app).
-    Quem só cita o app num argumento não conta."""
-    saida = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True).stdout
-    alvo = str(app.resolve()) + "/"
-    meu = str(os.getpid())
+def _app_processes(app: Path) -> list[int]:
+    """PIDs of processes whose EXECUTABLE is inside the bundle (the command starts with the app path).
+    Anything that merely mentions the app in an argument does not count."""
+    output = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True).stdout
+    target = str(app.resolve()) + "/"
+    mine = str(os.getpid())
     pids = []
-    for linha in saida.splitlines():
-        partes = linha.strip().split(None, 1)
-        if len(partes) == 2 and partes[0] != meu and partes[1].startswith(alvo):
-            pids.append(int(partes[0]))
+    for line in output.splitlines():
+        parts = line.strip().split(None, 1)
+        if len(parts) == 2 and parts[0] != mine and parts[1].startswith(target):
+            pids.append(int(parts[0]))
     return pids
 
 
-def parar_wine(app: Path, tempo_max: float = 30.0) -> None:
-    """Para o wineserver do app e espera todos os processos dele sumirem (o registro só é gravado no fim).
-    Os processos Windows (C:\\...) caem junto com o wineserver (WSS-wineserverkill)."""
+def stop_wine(app: Path, max_time: float = 30.0) -> None:
+    """Stops the app's wineserver and waits for all of its processes to go away (the registry is only written at the end).
+    The Windows processes (C:\\...) go down together with the wineserver (WSS-wineserverkill)."""
     try:
         subprocess.run([str(_launcher(app)), "WSS-wineserverkill"], capture_output=True)
     except OSError:
-        pass  # app sem launcher: ainda vale procurar processos
-    limite = time.monotonic() + tempo_max
-    while _processos_do_app(app):
-        if time.monotonic() > limite:
-            for pid in _processos_do_app(app):
+        pass  # app without a launcher: it is still worth looking for processes
+    deadline = time.monotonic() + max_time
+    while _app_processes(app):
+        if time.monotonic() > deadline:
+            for pid in _app_processes(app):
                 try:
                     os.kill(pid, signal.SIGKILL)
                 except ProcessLookupError:
                     pass
             time.sleep(1)
-            restantes = _processos_do_app(app)
-            if restantes:
-                raise PrefixoFalhou(f"não consegui parar os processos do Wine do app (PIDs {restantes})")
+            remaining = _app_processes(app)
+            if remaining:
+                raise PrefixFailed(f"could not stop the app's Wine processes (PIDs {remaining})")
             break
         time.sleep(0.5)
 
 
-def criar_prefixo(app: Path, tempo_max: float = 300.0) -> Path:
+def create_prefix(app: Path, max_time: float = 300.0) -> Path:
     try:
-        subprocess.run([str(_launcher(app)), "WSS-wineprefixcreate"], capture_output=True, timeout=tempo_max)
+        subprocess.run([str(_launcher(app)), "WSS-wineprefixcreate"], capture_output=True, timeout=max_time)
     except subprocess.TimeoutExpired:
-        parar_wine(app, tempo_max=10)
-        raise PrefixoFalhou(f"o launcher não terminou de criar o prefixo em {tempo_max:g} s (travou em algum diálogo?)") from None
-    parar_wine(app)
-    prefixo = app / "Contents" / "SharedSupport" / "prefix"
-    if not (prefixo / "system.reg").is_file():
-        raise PrefixoFalhou(f"o launcher não criou o prefixo em {prefixo}")
-    return prefixo
+        stop_wine(app, max_time=10)
+        raise PrefixFailed(f"the launcher did not finish creating the prefix within {max_time:g} s (stuck on a dialog?)") from None
+    stop_wine(app)
+    prefix = app / "Contents" / "SharedSupport" / "prefix"
+    if not (prefix / "system.reg").is_file():
+        raise PrefixFailed(f"the launcher did not create the prefix at {prefix}")
+    return prefix
 
 
-# --- Jogo -------------------------------------------------------------------------------
+# --- Game -------------------------------------------------------------------------------
 
 def _sha1(p: Path) -> str:
     h = hashlib.sha1()
     with open(p, "rb") as f:
-        for bloco in iter(lambda: f.read(1 << 20), b""):
-            h.update(bloco)
+        for block in iter(lambda: f.read(1 << 20), b""):
+            h.update(block)
     return h.hexdigest()
 
 
-def conferir_jogo(origem: Path, receita: Receita) -> None:
-    """Levanta JogoInvalido se faltar a pasta, o executável, ou se o executável não for o build esperado."""
-    exe = origem / receita.exe_origem
-    if not origem.is_dir() or not exe.is_file():
-        raise JogoInvalido(
-            f"arquivos do jogo não encontrados em {origem} (falta {receita.exe_origem}). "
-            f"Baixe com: {COMANDO_STEAMCMD}"
+def check_game(source: Path, recipe: Recipe) -> None:
+    """Raises InvalidGame if the folder or the executable is missing, or if the executable is not the expected build."""
+    exe = source / recipe.exe_source
+    if not source.is_dir() or not exe.is_file():
+        raise InvalidGame(
+            f"game files not found in {source} ({recipe.exe_source} is missing). "
+            f"Download with: {STEAMCMD_COMMAND}"
         )
-    if _sha1(exe) != receita.sha1_exe:
-        raise JogoInvalido(
-            f"{exe} não é o build esperado (SHA-1 diferente de {receita.sha1_exe}). "
-            f"Baixe de novo com: {COMANDO_STEAMCMD}"
+    if _sha1(exe) != recipe.exe_sha1:
+        raise InvalidGame(
+            f"{exe} is not the expected build (SHA-1 differs from {recipe.exe_sha1}). "
+            f"Download again with: {STEAMCMD_COMMAND}"
         )
-    faltando = [a for a in receita.arquivos_obrigatorios if not (origem / a).is_file()]
-    if faltando:
-        raise JogoInvalido(
-            f"jogo incompleto em {origem} (faltam: {', '.join(faltando)}). "
-            f"Baixe/valide com: {COMANDO_STEAMCMD}"
+    missing = [f for f in recipe.required_files if not (source / f).is_file()]
+    if missing:
+        raise InvalidGame(
+            f"incomplete game in {source} (missing: {', '.join(missing)}). "
+            f"Download/validate with: {STEAMCMD_COMMAND}"
         )
 
 
-def copiar_jogo(origem: Path, destino: Path, receita: Receita) -> None:
-    conferir_jogo(origem, receita)
-    exe = origem / receita.exe_origem
-    excluir = set(receita.excluir)
-    shutil.copytree(origem, destino, ignore=lambda pasta, nomes: excluir & set(nomes) if Path(pasta) == origem else set())
-    shutil.copy2(exe, destino / receita.exe_destino)
+def copy_game(source: Path, target: Path, recipe: Recipe) -> None:
+    check_game(source, recipe)
+    exe = source / recipe.exe_source
+    exclude = set(recipe.exclude)
+    shutil.copytree(source, target, ignore=lambda folder, names: exclude & set(names) if Path(folder) == source else set())
+    shutil.copy2(exe, target / recipe.exe_target)
 
 
-def configurar_drive_cd(prefixo: Path, alvo_relativo: str, rotulo: str) -> None:
-    link = prefixo / "dosdevices" / "d:"
+def setup_cd_drive(prefix: Path, relative_target: str, label: str) -> None:
+    link = prefix / "dosdevices" / "d:"
     if link.is_symlink() or link.exists():
         link.unlink()
-    os.symlink(f"../drive_c/{alvo_relativo}", link)
-    (prefixo / "drive_c" / alvo_relativo / ".windows-label").write_text(rotulo + "\n")
+    os.symlink(f"../drive_c/{relative_target}", link)
+    (prefix / "drive_c" / relative_target / ".windows-label").write_text(label + "\n")
 
 
-# --- Registro ---------------------------------------------------------------------------
+# --- Registry ---------------------------------------------------------------------------
 
-def _escapar(texto: str) -> str:
-    return texto.replace("\\", "\\\\").replace('"', '\\"')
-
-
-def _linha_valor(nome: str, valor) -> str:
-    if isinstance(valor, int):
-        return f'"{_escapar(nome)}"=dword:{valor:08x}'
-    return f'"{_escapar(nome)}"="{_escapar(valor)}"'
+def _escape(text: str) -> str:
+    return text.replace("\\", "\\\\").replace('"', '\\"')
 
 
-def _aplicar_chave(linhas: list[str], chave: ChaveRegistro) -> list[str]:
-    cabecalho = "[" + _escapar(chave.chave) + "]"
-    inicio = next((i for i, l in enumerate(linhas) if l.lower().startswith(cabecalho.lower())), None)
-    if inicio is None:
-        novas = ["", f"{cabecalho} {int(time.time())}"] + [_linha_valor(n, v) for n, v in chave.valores.items()]
-        return linhas + novas
-    fim = next((i for i in range(inicio + 1, len(linhas)) if linhas[i].startswith("[")), len(linhas))
-    secao = linhas[inicio + 1:fim]
-    for nome, valor in chave.valores.items():
-        prefixo_nome = f'"{_escapar(nome)}"='.lower()
-        secao = [l for l in secao if not l.lower().startswith(prefixo_nome)]
-        while secao and secao[-1] == "":
-            secao.pop()
-        secao.append(_linha_valor(nome, valor))
-    if fim < len(linhas):
-        secao.append("")
-    return linhas[:inicio + 1] + secao + linhas[fim:]
+def _value_line(name: str, value) -> str:
+    if isinstance(value, int):
+        return f'"{_escape(name)}"=dword:{value:08x}'
+    return f'"{_escape(name)}"="{_escape(value)}"'
 
 
-def aplicar_registro(prefixo: Path, chaves: Iterable[ChaveRegistro]) -> None:
-    """Grava as chaves em system.reg/user.reg. O Wine do app precisa estar parado (parar_wine)."""
-    for chave in chaves:
-        arquivo = prefixo / ("system.reg" if chave.colmeia == "system" else "user.reg")
-        linhas = arquivo.read_text(encoding="utf-8").split("\n")
-        if linhas and linhas[-1] == "":
-            linhas.pop()
-        arquivo.write_text("\n".join(_aplicar_chave(linhas, chave)) + "\n", encoding="utf-8")
+def _apply_key(lines: list[str], key: RegistryKey) -> list[str]:
+    header = "[" + _escape(key.key) + "]"
+    start = next((i for i, l in enumerate(lines) if l.lower().startswith(header.lower())), None)
+    if start is None:
+        new_lines = ["", f"{header} {int(time.time())}"] + [_value_line(n, v) for n, v in key.values.items()]
+        return lines + new_lines
+    end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("[")), len(lines))
+    section = lines[start + 1:end]
+    for name, value in key.values.items():
+        name_prefix = f'"{_escape(name)}"='.lower()
+        section = [l for l in section if not l.lower().startswith(name_prefix)]
+        while section and section[-1] == "":
+            section.pop()
+        section.append(_value_line(name, value))
+    if end < len(lines):
+        section.append("")
+    return lines[:start + 1] + section + lines[end:]
+
+
+def apply_registry(prefix: Path, keys: Iterable[RegistryKey]) -> None:
+    """Writes the keys into system.reg/user.reg. The app's Wine must be stopped (stop_wine)."""
+    for key in keys:
+        file = prefix / ("system.reg" if key.hive == "system" else "user.reg")
+        lines = file.read_text(encoding="utf-8").split("\n")
+        if lines and lines[-1] == "":
+            lines.pop()
+        file.write_text("\n".join(_apply_key(lines, key)) + "\n", encoding="utf-8")
 
 
 # --- Saves ------------------------------------------------------------------------------
 
-def _dentro(caminho: Path, pai: Path) -> bool:
-    return caminho == pai or pai in caminho.parents
+def _is_within(path: Path, parent: Path) -> bool:
+    return path == parent or parent in path.parents
 
 
-def ligar_saves(prefixo: Path, pasta: str, documentos_mac: Path) -> None:
-    """Liga só Documents/<pasta> do Windows a ~/Documents/<pasta>; o resto de Documents fica isolado no prefixo.
-    Nunca apaga nada que resolva para fora do prefixo nem a própria pasta de saves."""
-    alvo = documentos_mac / pasta
-    alvo.mkdir(parents=True, exist_ok=True)
-    raiz = prefixo.resolve()
-    vistos = set()
-    for usuario in sorted((prefixo / "drive_c" / "users").iterdir()):
-        if usuario.name == "Public" or not usuario.is_dir():
+def link_saves(prefix: Path, folder: str, mac_documents: Path) -> None:
+    """Links only Windows Documents/<folder> to ~/Documents/<folder>; the rest of Documents stays isolated in the prefix.
+    Never deletes anything that resolves outside the prefix, nor the saves folder itself."""
+    target = mac_documents / folder
+    target.mkdir(parents=True, exist_ok=True)
+    root = prefix.resolve()
+    seen = set()
+    for user in sorted((prefix / "drive_c" / "users").iterdir()):
+        if user.name == "Public" or not user.is_dir():
             continue
-        real = usuario.resolve()
-        if not _dentro(real, raiz):
-            raise PrefixoFalhou(f"a pasta de usuário {usuario} aponta para fora do prefixo ({real}); nada foi apagado")
-        if real in vistos:
+        real = user.resolve()
+        if not _is_within(real, root):
+            raise PrefixFailed(f"the user folder {user} points outside the prefix ({real}); nothing was deleted")
+        if real in seen:
             continue
-        vistos.add(real)
-        docs = usuario / "Documents"
+        seen.add(real)
+        docs = user / "Documents"
         if docs.is_symlink():
-            docs.unlink()  # só o link, nunca o destino
+            docs.unlink()  # only the link, never the target
         docs.mkdir(exist_ok=True)
-        link = docs / pasta
+        link = docs / folder
         if link.is_symlink():
             link.unlink()
         elif link.exists():
-            resolvido = link.resolve()
-            if not _dentro(resolvido, raiz) or resolvido == alvo.resolve():
-                raise PrefixoFalhou(f"{link} resolve para {resolvido}, fora do prefixo ou igual à pasta de saves; nada foi apagado")
+            resolved = link.resolve()
+            if not _is_within(resolved, root) or resolved == target.resolve():
+                raise PrefixFailed(f"{link} resolves to {resolved}, outside the prefix or equal to the saves folder; nothing was deleted")
             shutil.rmtree(link)
-        os.symlink(alvo, link)
+        os.symlink(target, link)
 
 
-# --- Relocação --------------------------------------------------------------------------
+# --- Relocation -------------------------------------------------------------------------
 
-def relocar_registro(prefixo: Path, de: Path, para: Path) -> None:
-    """Troca o caminho do bundle `de` pelo de `para` em system.reg/user.reg (o Wine grava caminhos absolutos
-    de fontes, InstallSource do wine-mono etc.). O Wine do app precisa estar parado (parar_wine)."""
-    pares = []
-    for origem in dict.fromkeys([str(de), str(de.resolve())]):
-        pares.append(("Z:" + origem.replace("/", "\\\\"), "Z:" + str(para).replace("/", "\\\\")))  # forma do .reg: Z:\\Users\\...
-        pares.append(("Z:" + origem.replace("/", "\\"), "Z:" + str(para).replace("/", "\\")))
-        pares.append((origem, str(para)))  # barras normais (Z:/... ou /...)
-    for nome in ("system.reg", "user.reg"):
-        arquivo = prefixo / nome
-        if not arquivo.is_file():
+def relocate_registry(prefix: Path, old: Path, new: Path) -> None:
+    """Replaces the bundle path `old` with `new` in system.reg/user.reg (Wine records absolute paths
+    for fonts, the wine-mono InstallSource etc.). The app's Wine must be stopped (stop_wine)."""
+    pairs = []
+    for variant in dict.fromkeys([str(old), str(old.resolve())]):
+        pairs.append(("Z:" + variant.replace("/", "\\\\"), "Z:" + str(new).replace("/", "\\\\")))  # .reg form: Z:\\Users\\...
+        pairs.append(("Z:" + variant.replace("/", "\\"), "Z:" + str(new).replace("/", "\\")))
+        pairs.append((variant, str(new)))  # forward slashes (Z:/... or /...)
+    for name in ("system.reg", "user.reg"):
+        file = prefix / name
+        if not file.is_file():
             continue
-        texto = arquivo.read_text(encoding="utf-8")
-        for velho, novo in pares:
-            texto = re.sub(re.escape(velho) + r"(?![\w-])", lambda _: novo, texto)
-        arquivo.write_text(texto, encoding="utf-8")
+        text = file.read_text(encoding="utf-8")
+        for old_text, new_text in pairs:
+            text = re.sub(re.escape(old_text) + r"(?![\w-])", lambda _: new_text, text)
+        file.write_text(text, encoding="utf-8")

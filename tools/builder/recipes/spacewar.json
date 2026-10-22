@@ -1,17 +1,17 @@
 {
-  "nome": "spacewar",
-  "nome_app": "Spacewar",
+  "name": "spacewar",
+  "app_name": "Spacewar",
   "bundle_id": "local.portcarros.spacewar",
-  "pasta_jogo": "jogos/spacewar",
-  "exe_origem": "SteamworksExample.exe",
-  "exe_destino": "SteamworksExample.exe",
-  "sha1_exe": "11d991128113e641ded71dbef6e96e67c1c2f5a9",
-  "excluir": ["_CommonRedist", "steamapps"],
-  "rotulo_cd": null,
-  "pasta_saves": null,
-  "renderizador": "wined3d",
-  "arquivos_obrigatorios": ["steam_api.dll"],
-  "registro": [
-    {"colmeia": "user", "chave": "Software\\Wine\\X11 Driver", "valores": {"EmulateModeset": "y"}}
+  "game_dir": "jogos/spacewar",
+  "exe_source": "SteamworksExample.exe",
+  "exe_target": "SteamworksExample.exe",
+  "exe_sha1": "11d991128113e641ded71dbef6e96e67c1c2f5a9",
+  "exclude": ["_CommonRedist", "steamapps"],
+  "cd_label": null,
+  "saves_dir": null,
+  "renderer": "wined3d",
+  "required_files": ["steam_api.dll"],
+  "registry": [
+    {"hive": "user", "key": "Software\\Wine\\X11 Driver", "values": {"EmulateModeset": "y"}}
   ]
 }

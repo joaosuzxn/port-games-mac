@@ -1,11 +1,11 @@
 {
   "template": {
-    "arquivo": "Template-1.0.24.tar.xz",
+    "file": "Template-1.0.24.tar.xz",
     "sha256": "4b5f89eeb9ef139936bdfad33d9b420b05ea4597cb7d63376674f7a8e171321c",
     "url": "https://github.com/Sikarugir-App/Template/releases/download/v1.0/Template-1.0.24.tar.xz"
   },
   "engine": {
-    "arquivo": "WS12WineSikarugir11.0_1.tar.xz",
+    "file": "WS12WineSikarugir11.0_1.tar.xz",
     "sha256": "67e29fb3d74f363af39c69ba11f9b13a79812c5db07cf4748672658e4a200a0e",
     "url": "https://github.com/Sikarugir-App/Engines/releases/download/v1.0/WS12WineSikarugir11.0_1.tar.xz"
   }
