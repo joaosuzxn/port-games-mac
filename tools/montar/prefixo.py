@@ -75,7 +75,8 @@ def _sha1(p: Path) -> str:
     return h.hexdigest()
 
 
-def copiar_jogo(origem: Path, destino: Path, receita: Receita) -> None:
+def conferir_jogo(origem: Path, receita: Receita) -> None:
+    """Levanta JogoInvalido se faltar a pasta, o executável, ou se o executável não for o build esperado."""
     exe = origem / receita.exe_origem
     if not origem.is_dir() or not exe.is_file():
         raise JogoInvalido(
@@ -87,6 +88,11 @@ def copiar_jogo(origem: Path, destino: Path, receita: Receita) -> None:
             f"{exe} não é o build esperado (SHA-1 diferente de {receita.sha1_exe}). "
             f"Baixe de novo com: {COMANDO_STEAMCMD}"
         )
+
+
+def copiar_jogo(origem: Path, destino: Path, receita: Receita) -> None:
+    conferir_jogo(origem, receita)
+    exe = origem / receita.exe_origem
     excluir = set(receita.excluir)
     shutil.copytree(origem, destino, ignore=lambda pasta, nomes: excluir & set(nomes) if Path(pasta) == origem else set())
     shutil.copy2(exe, destino / receita.exe_destino)

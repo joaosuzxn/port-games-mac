@@ -71,8 +71,20 @@ launcher, ícone) · `docs` · `infra` (ferramentas, scripts).
     ├── .claude/skills/adr-decisoes/            # ADRs
     ├── docs/                                   # analises, specs, plans, decisions, backlog
     ├── tools/backlog/backlog.mjs               # CLI do backlog
+    ├── tools/montar/                           # monta o .app (Python 3 stdlib); receitas/carros.json = o específico do jogo
     ├── jogo/      (gitignored)                 # arquivos Windows do jogo
     └── build/     (gitignored)                 # Carros.app gerado
+
+## Montar o app
+
+    python3 tools/montar/montar.py carros              # gera build/Carros.app (~2,2 GB, ~1 min)
+    python3 tools/montar/montar.py carros --instalar   # e copia para /Applications
+    python3 -m unittest discover -s tools/montar -t tools/montar   # testes
+
+Artefatos (template Sikarugir 1.0.24 + engine WS12WineSikarugir 11.0_1) ficam em
+`~/Library/Caches/portcarros/artefatos`, conferidos por SHA-256 (`tools/montar/artefatos.json`).
+- 🚨 O launcher só cria o prefixo com o `Configure.app` presente (lê `remakedefaults.reg` dele); remover só no fim.
+- 🚨 Editar `system.reg`/`user.reg` só com o Wine do app parado (`parar_wine`), senão o wineserver sobrescreve.
 
 ## Stack e ambiente
 
