@@ -241,10 +241,6 @@ class TestPararWine(unittest.TestCase):
                 parar_wine(self.app, tempo_max=0)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TestCriarPrefixoTempo(unittest.TestCase):
     def test_launcher_travado_vira_erro(self):
         from prefixo import PrefixoFalhou, criar_prefixo
@@ -256,3 +252,7 @@ class TestCriarPrefixoTempo(unittest.TestCase):
         with self.assertRaises(PrefixoFalhou) as ctx:
             criar_prefixo(app, tempo_max=1)
         self.assertIn("1", str(ctx.exception))
+
+
+if __name__ == "__main__":
+    unittest.main()
