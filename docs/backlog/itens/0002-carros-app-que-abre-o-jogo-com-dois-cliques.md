@@ -3,14 +3,14 @@ id: 2
 titulo: "Carros.app que abre o jogo com dois cliques"
 tipo: feature
 urgencia: P1
-status: aberto
+status: feito
 modulos: [app, wine]
 criado: 2026-10-22
 iniciado: null
-concluido: null
-commits: []
+concluido: 2026-10-22
+commits: [68fccd2]
 relacionados: [1]
-validacao: null
+validacao: ok
 ---
 ## Contexto
 
@@ -30,3 +30,4 @@ ou montagem própria com builds Gcenx; camada gráfica a escolher por teste.
 2026-10-22: Spec aprovada pelo dono (docs/specs/2026-10-22-carros-app-design.md); plano em docs/plans/2026-10-22-carros-app.md.
 2026-10-22: Artefatos com URL oficial e SHA-256 conferidos: Template-1.0.24.tar.xz e WS12WineSikarugir11.0_1.tar.xz (github.com/Sikarugir-App).
 2026-10-22: Task 5: build/Carros.app montado pelo script (sem Sikarugir Creator); dono abriu, sem diálogos, ícone ok, jogou normalmente.
+2026-10-22: Dono declarou o objetivo concluído: abre com dois cliques, tela cheia esticada, 30 FPS, controle funciona com layout deslocado (#6). Aceite 'do zero com --instalar' (Task 9) não executado.
