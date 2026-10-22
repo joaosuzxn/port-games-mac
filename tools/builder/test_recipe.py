@@ -3,9 +3,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from receita import ChaveRegistro, ReceitaInvalida, carregar_receita
+from recipe import ChaveRegistro, ReceitaInvalida, carregar_receita
 
-RECEITAS = Path(__file__).parent / "receitas"
+RECEITAS = Path(__file__).parent / "recipes"
 
 
 class TestReceitaCarros(unittest.TestCase):

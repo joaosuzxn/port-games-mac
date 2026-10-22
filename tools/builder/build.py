@@ -1,6 +1,6 @@
 """Monta o .app de um jogo a partir da receita.
 
-Uso: python3 tools/montar/montar.py carros [--saida build] [--cache DIR] [--jogo DIR] [--instalar]
+Uso: python3 tools/builder/build.py carros [--saida build] [--cache DIR] [--jogo DIR] [--instalar]
 """
 import argparse
 import urllib.error
@@ -11,12 +11,12 @@ import sys
 import tempfile
 from pathlib import Path
 
-from artefatos import CACHE_PADRAO, FONTES_LOCAIS_PADRAO, ArtefatoInvalido, carregar_artefatos, garantir_artefato
+from artifacts import CACHE_PADRAO, FONTES_LOCAIS_PADRAO, ArtefatoInvalido, carregar_artefatos, garantir_artefato
 from bundle import configurar_info_plist, montar_bundle, remover_configuracao, substituir_app
-from icone import extrair_icone
-from prefixo import (JogoInvalido, PrefixoFalhou, aplicar_registro, configurar_drive_cd, conferir_jogo, copiar_jogo,
+from icon import extrair_icone
+from prefix import (JogoInvalido, PrefixoFalhou, aplicar_registro, configurar_drive_cd, conferir_jogo, copiar_jogo,
                      criar_prefixo, ligar_saves, parar_wine, relocar_registro)
-from receita import ReceitaInvalida, carregar_receita
+from recipe import ReceitaInvalida, carregar_receita
 
 AQUI = Path(__file__).resolve().parent
 RAIZ = AQUI.parents[1]
@@ -82,7 +82,7 @@ def instalar_app(app: Path, diretorio: Path, receita) -> Path:
 
 def montar(receita_nome: str, saida: Path, cache: Path, pasta_jogo: Path | None, instalar: bool,
            diretorio_instalacao: Path = DIRETORIO_INSTALACAO_PADRAO) -> Path:
-    receita = carregar_receita(AQUI / "receitas" / f"{receita_nome}.json")
+    receita = carregar_receita(AQUI / "recipes" / f"{receita_nome}.json")
     jogo = pasta_jogo or (RAIZ / receita.pasta_jogo)
     _etapa(f"Conferindo os arquivos do jogo em {jogo}")
     conferir_jogo(jogo, receita)  # antes de tocar em build/
@@ -91,7 +91,7 @@ def montar(receita_nome: str, saida: Path, cache: Path, pasta_jogo: Path | None,
         _conferir_destino(diretorio_instalacao / final.name, receita)
 
     _etapa("Conferindo template e engine Wine")
-    artefatos = carregar_artefatos(AQUI / "artefatos.json")
+    artefatos = carregar_artefatos(AQUI / "artifacts.json")
     template = garantir_artefato(artefatos["template"], cache, FONTES_LOCAIS_PADRAO)
     engine = garantir_artefato(artefatos["engine"], cache, FONTES_LOCAIS_PADRAO)
 
@@ -140,7 +140,7 @@ def montar(receita_nome: str, saida: Path, cache: Path, pasta_jogo: Path | None,
 
 def main(argv: list[str]) -> int:
     p = argparse.ArgumentParser(description="Monta o .app de um jogo Windows a partir da receita.")
-    p.add_argument("receita", help="nome da receita em tools/montar/receitas (ex.: carros)")
+    p.add_argument("receita", help="nome da receita em tools/builder/recipes (ex.: carros)")
     p.add_argument("--saida", type=Path, default=RAIZ / "build")
     p.add_argument("--cache", type=Path, default=CACHE_PADRAO)
     p.add_argument("--jogo", type=Path, default=None, help="pasta com os arquivos do jogo (padrão: a da receita)")

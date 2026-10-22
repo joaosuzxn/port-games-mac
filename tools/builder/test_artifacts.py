@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from artefatos import Artefato, ArtefatoInvalido, _baixar, carregar_artefatos, garantir_artefato, sha256_arquivo
+from artifacts import Artefato, ArtefatoInvalido, _baixar, carregar_artefatos, garantir_artefato, sha256_arquivo
 
 
 class TestArtefatos(unittest.TestCase):
@@ -50,7 +50,7 @@ class TestArtefatos(unittest.TestCase):
         self.assertIn(str(self.fonte), str(ctx.exception))
 
     def test_carrega_artefatos_do_projeto(self):
-        arts = carregar_artefatos(Path(__file__).parent / "artefatos.json")
+        arts = carregar_artefatos(Path(__file__).parent / "artifacts.json")
         self.assertEqual(arts["engine"].arquivo, "WS12WineSikarugir11.0_1.tar.xz")
         self.assertEqual(arts["engine"].sha256, "67e29fb3d74f363af39c69ba11f9b13a79812c5db07cf4748672658e4a200a0e")
         self.assertEqual(arts["template"].arquivo, "Template-1.0.24.tar.xz")
@@ -67,7 +67,7 @@ class TestBaixar(unittest.TestCase):
             def read(self, n=-1): raise ConnectionResetError("caiu")
 
         destino = tmp / "x.tar.xz"
-        with mock.patch("artefatos.urllib.request.urlopen", return_value=Resp()):
+        with mock.patch("artifacts.urllib.request.urlopen", return_value=Resp()):
             with self.assertRaises(OSError):
                 _baixar("https://exemplo.invalid/x", destino, "0" * 64)
         self.assertEqual(list(tmp.iterdir()), [])

@@ -7,9 +7,9 @@ from dataclasses import replace
 from pathlib import Path
 
 from bundle import montar_bundle, remover_configuracao, substituir_app
-from receita import carregar_receita
+from recipe import carregar_receita
 
-RECEITA = carregar_receita(Path(__file__).parent / "receitas" / "carros.json")
+RECEITA = carregar_receita(Path(__file__).parent / "recipes" / "carros.json")
 
 PLIST_TEMPLATE = {
     "CFBundleName": "SikarugirNavyWrapper",

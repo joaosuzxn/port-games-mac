@@ -9,11 +9,11 @@ from unittest import mock
 from dataclasses import replace
 from pathlib import Path
 
-from prefixo import JogoInvalido, aplicar_registro, configurar_drive_cd, copiar_jogo, ligar_saves, relocar_registro
-from prefixo import PrefixoFalhou, parar_wine
-from receita import ChaveRegistro, carregar_receita
+from prefix import JogoInvalido, aplicar_registro, configurar_drive_cd, copiar_jogo, ligar_saves, relocar_registro
+from prefix import PrefixoFalhou, parar_wine
+from recipe import ChaveRegistro, carregar_receita
 
-RECEITA = carregar_receita(Path(__file__).parent / "receitas" / "carros.json")
+RECEITA = carregar_receita(Path(__file__).parent / "recipes" / "carros.json")
 
 
 class TestCopiarJogo(unittest.TestCase):
@@ -235,15 +235,15 @@ class TestPararWine(unittest.TestCase):
         parar_wine(self.app, tempo_max=1)
 
     def test_processo_que_resiste_ao_sigkill_vira_erro(self):
-        with mock.patch("prefixo._processos_do_app", return_value=[os.getpid() + 999999]), \
-                mock.patch("prefixo.os.kill"), mock.patch("prefixo.time.sleep"):
+        with mock.patch("prefix._processos_do_app", return_value=[os.getpid() + 999999]), \
+                mock.patch("prefix.os.kill"), mock.patch("prefix.time.sleep"):
             with self.assertRaises(PrefixoFalhou):
                 parar_wine(self.app, tempo_max=0)
 
 
 class TestCriarPrefixoTempo(unittest.TestCase):
     def test_launcher_travado_vira_erro(self):
-        from prefixo import PrefixoFalhou, criar_prefixo
+        from prefix import PrefixoFalhou, criar_prefixo
         app = Path(tempfile.mkdtemp()) / "Teste.app"
         launcher = app / "Contents" / "MacOS" / "wineskinlauncher"
         launcher.parent.mkdir(parents=True)

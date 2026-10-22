@@ -10,10 +10,10 @@ from dataclasses import replace
 from pathlib import Path
 from unittest import mock
 
-import montar
-from montar import main, montar as montar_app
-from prefixo import PrefixoFalhou
-from receita import carregar_receita
+import build
+from build import main, montar as montar_app
+from prefix import PrefixoFalhou
+from recipe import carregar_receita
 
 
 class TestMain(unittest.TestCase):
@@ -46,9 +46,9 @@ class TestMain(unittest.TestCase):
         jogo = self.tmp / "jogo"
         (jogo / "bak").mkdir(parents=True)
         (jogo / "bak" / "Cars.exe").write_bytes(b"build bom")
-        receita = replace(carregar_receita(Path(montar.__file__).parent / "receitas" / "carros.json"),
+        receita = replace(carregar_receita(Path(build.__file__).parent / "recipes" / "carros.json"),
                           sha1_exe=hashlib.sha1(b"build bom").hexdigest())
-        with mock.patch("montar.carregar_receita", return_value=receita):
+        with mock.patch("build.carregar_receita", return_value=receita):
             codigo, erro = self._rodar(["carros", "--saida", str(self.saida), "--jogo", str(jogo)])
         self.assertNotEqual(codigo, 0)
         self.assertIn("incompleto", erro)
@@ -107,7 +107,7 @@ class TestMontarIntegracao(unittest.TestCase):
         (self.jogo / "bak" / "Cars.exe").write_bytes(b"build bom")
         (self.jogo / "Data").mkdir()
         (self.jogo / "Data" / "Global.pak").write_bytes(b"pak")
-        self.receita = replace(carregar_receita(Path(montar.__file__).parent / "receitas" / "carros.json"),
+        self.receita = replace(carregar_receita(Path(build.__file__).parent / "recipes" / "carros.json"),
                                sha1_exe=hashlib.sha1(b"build bom").hexdigest(),
                                arquivos_obrigatorios=("Data/Global.pak",), registro=(), pasta_saves=None, rotulo_cd=None)
         self.saida = self.tmp / "build"
@@ -117,8 +117,8 @@ class TestMontarIntegracao(unittest.TestCase):
 
     def _montar(self, instalar=False):
         fonte = lambda a, cache, fontes: self.template if a.nome == "template" else self.engine
-        with mock.patch("montar.carregar_receita", return_value=self.receita), \
-                mock.patch("montar.garantir_artefato", side_effect=fonte), \
+        with mock.patch("build.carregar_receita", return_value=self.receita), \
+                mock.patch("build.garantir_artefato", side_effect=fonte), \
                 contextlib.redirect_stdout(io.StringIO()):
             return montar_app("carros", self.saida, self.cache, self.jogo, instalar, self.apps)
 

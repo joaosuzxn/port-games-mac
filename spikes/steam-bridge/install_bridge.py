@@ -1,7 +1,7 @@
-"""SPIKE (descartável): instala a ponte lsteamclient num .app montado pelo tools/montar.
+"""SPIKE (descartável): instala a ponte lsteamclient num .app montado pelo tools/builder.
 
-Uso: python3 spikes/ponte-steam/instalar_ponte.py <App.app> <appid> <pasta_do_jogo_windows> <exe>
-Ex.:  python3 spikes/ponte-steam/instalar_ponte.py build/Spacewar.app 480 'C:\\Games\\Spacewar' SteamworksExample.exe
+Uso: python3 spikes/steam-bridge/install_bridge.py <App.app> <appid> <pasta_do_jogo_windows> <exe>
+Ex.:  python3 spikes/steam-bridge/install_bridge.py build/Spacewar.app 480 'C:\\Games\\Spacewar' SteamworksExample.exe
 
 Layout copiado do Neutron (https://github.com/mont127/Neutron, Apache-2.0):
 - lsteamclient.so no lado unix do wine do app; lsteamclient.dll (i386/x86_64) no wine e no prefixo
@@ -17,8 +17,8 @@ import sys
 from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(RAIZ / "tools" / "montar"))
-from prefixo import parar_wine  # noqa: E402
+sys.path.insert(0, str(RAIZ / "tools" / "builder"))
+from prefix import parar_wine  # noqa: E402
 
 FONTES = Path.home() / "Library/Caches/portcarros/fontes"
 LSC = FONTES / "wine-build-dual/dlls/lsteamclient"

@@ -5,7 +5,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from receita import Receita
+from recipe import Receita
 
 # Chave do Info.plist do Sikarugir ligada por cada renderizador; wined3d = todas desligadas.
 CHAVES_RENDERIZADOR = {"d9vk": "D9VK", "d3dmetal": "D3DMETAL"}

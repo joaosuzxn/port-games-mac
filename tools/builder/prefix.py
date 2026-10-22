@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 from typing import Iterable
 
-from receita import ChaveRegistro, Receita
+from recipe import ChaveRegistro, Receita
 
 COMANDO_STEAMCMD = (
     'steamcmd +@sSteamCmdForcePlatformType windows +force_install_dir "$PWD/jogo" '

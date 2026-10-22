@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from icone import extrair_icone
+from icon import extrair_icone
 
 EXE_REAL = Path(__file__).resolve().parents[2] / "jogo" / "bak" / "Cars.exe"
 
