@@ -28,3 +28,4 @@ ou montagem própria com builds Gcenx; camada gráfica a escolher por teste.
 ## Notas de execução
 2026-10-22: Spike: jogo roda no Wine (Sikarugir) com área virtual + D: como CD rotulado DISC2. Ver docs/analises/2026-10-22-teste-rapido-wine.md.
 2026-10-22: Spec aprovada pelo dono (docs/specs/2026-10-22-carros-app-design.md); plano em docs/plans/2026-10-22-carros-app.md.
+2026-10-22: Artefatos com URL oficial e SHA-256 conferidos: Template-1.0.24.tar.xz e WS12WineSikarugir11.0_1.tar.xz (github.com/Sikarugir-App).
