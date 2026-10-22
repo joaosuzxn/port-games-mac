@@ -26,3 +26,4 @@ Brainstorming em andamento. Depende do resultado do #1 (DRM, API gráfica). Cand
 ou montagem própria com builds Gcenx; camada gráfica a escolher por teste.
 
 ## Notas de execução
+2026-10-22: Spike: jogo roda no Wine (Sikarugir) com área virtual + D: como CD rotulado DISC2. Ver docs/analises/2026-10-22-teste-rapido-wine.md.
