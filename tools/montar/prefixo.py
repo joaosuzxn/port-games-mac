@@ -32,14 +32,26 @@ def _launcher(app: Path) -> Path:
 
 
 def _processos_do_app(app: Path) -> list[int]:
+    """PIDs de processos cujo EXECUTÁVEL está dentro do bundle (o comando começa com o caminho do app).
+    Quem só cita o app num argumento não conta."""
     saida = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True).stdout
-    alvo = str(app.resolve())
-    return [int(l.split(None, 1)[0]) for l in saida.splitlines() if alvo in l and str(os.getpid()) != l.split(None, 1)[0]]
+    alvo = str(app.resolve()) + "/"
+    meu = str(os.getpid())
+    pids = []
+    for linha in saida.splitlines():
+        partes = linha.strip().split(None, 1)
+        if len(partes) == 2 and partes[0] != meu and partes[1].startswith(alvo):
+            pids.append(int(partes[0]))
+    return pids
 
 
 def parar_wine(app: Path, tempo_max: float = 30.0) -> None:
-    """Para o wineserver do app e espera todos os processos dele sumirem (o registro só é gravado no fim)."""
-    subprocess.run([str(_launcher(app)), "WSS-wineserverkill"], capture_output=True)
+    """Para o wineserver do app e espera todos os processos dele sumirem (o registro só é gravado no fim).
+    Os processos Windows (C:\\...) caem junto com o wineserver (WSS-wineserverkill)."""
+    try:
+        subprocess.run([str(_launcher(app)), "WSS-wineserverkill"], capture_output=True)
+    except OSError:
+        pass  # app sem launcher: ainda vale procurar processos
     limite = time.monotonic() + tempo_max
     while _processos_do_app(app):
         if time.monotonic() > limite:
@@ -49,6 +61,9 @@ def parar_wine(app: Path, tempo_max: float = 30.0) -> None:
                 except ProcessLookupError:
                     pass
             time.sleep(1)
+            restantes = _processos_do_app(app)
+            if restantes:
+                raise PrefixoFalhou(f"não consegui parar os processos do Wine do app (PIDs {restantes})")
             break
         time.sleep(0.5)
 

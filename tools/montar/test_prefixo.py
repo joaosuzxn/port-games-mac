@@ -1,13 +1,16 @@
 import hashlib
 import os
 import shutil
+import subprocess
 import tempfile
+import time
 import unittest
+from unittest import mock
 from dataclasses import replace
 from pathlib import Path
 
 from prefixo import JogoInvalido, aplicar_registro, configurar_drive_cd, copiar_jogo, ligar_saves, relocar_registro
-from prefixo import PrefixoFalhou
+from prefixo import PrefixoFalhou, parar_wine
 from receita import ChaveRegistro, carregar_receita
 
 RECEITA = carregar_receita(Path(__file__).parent / "receitas" / "carros.json")
@@ -196,6 +199,46 @@ class TestSaves(unittest.TestCase):
         os.symlink(self.prefixo / "drive_c" / "users" / "joao", self.prefixo / "drive_c" / "users" / "alias")
         ligar_saves(self.prefixo, "THQ", self.docs_mac)
         self.assertEqual((self.docs_mac / "THQ" / "Cars" / "Save" / "slot1").read_text(), "progresso")
+
+
+class TestPararWine(unittest.TestCase):
+    def setUp(self):
+        self.app = Path(tempfile.mkdtemp()).resolve() / "Teste.app"
+        launcher = self.app / "Contents" / "MacOS" / "wineskinlauncher"
+        launcher.parent.mkdir(parents=True)
+        launcher.write_text("#!/bin/sh\nexit 0\n")
+        launcher.chmod(0o755)
+        self.procs = []
+        self.addCleanup(lambda: [(p.kill(), p.wait()) for p in self.procs])
+
+    def _iniciar(self, argv):
+        p = subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.procs.append(p)
+        time.sleep(0.5)
+        return p
+
+    def test_nao_mata_processo_que_so_cita_o_app_no_argumento(self):
+        p = self._iniciar(["sh", "-c", "sleep 30", str(self.app / "Contents" / "qualquer")])
+        parar_wine(self.app, tempo_max=1)
+        self.assertIsNone(p.poll())
+
+    def test_mata_processo_executado_de_dentro_do_app(self):
+        fake = self.app / "Contents" / "SharedSupport" / "wine" / "wineserver"
+        fake.parent.mkdir(parents=True)
+        fake.symlink_to("/bin/sleep")
+        p = self._iniciar([str(fake), "30"])
+        parar_wine(self.app, tempo_max=1)
+        self.assertIsNotNone(p.wait(timeout=5))
+
+    def test_sem_launcher_nao_quebra(self):
+        (self.app / "Contents" / "MacOS" / "wineskinlauncher").unlink()
+        parar_wine(self.app, tempo_max=1)
+
+    def test_processo_que_resiste_ao_sigkill_vira_erro(self):
+        with mock.patch("prefixo._processos_do_app", return_value=[os.getpid() + 999999]), \
+                mock.patch("prefixo.os.kill"), mock.patch("prefixo.time.sleep"):
+            with self.assertRaises(PrefixoFalhou):
+                parar_wine(self.app, tempo_max=0)
 
 
 if __name__ == "__main__":
