@@ -3,12 +3,12 @@ id: 1
 titulo: "Baixar os arquivos Windows do Carros (App 331160) e inspecionar o executável"
 tipo: tarefa
 urgencia: P1
-status: em-andamento
+status: feito
 modulos: [jogo, infra]
 criado: 2026-10-22
 iniciado: 2026-10-22
-concluido: null
-commits: []
+concluido: 2026-10-22
+commits: [6a4521e]
 relacionados: []
 validacao: null
 ---
