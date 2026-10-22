@@ -38,6 +38,11 @@ def configurar_info_plist(plist: Path, receita: Receita) -> None:
         plistlib.dump(dados, f)
 
 
+def remover_configuracao(app: Path) -> None:
+    """Tira o Configure.app do bundle final. Só depois de criar o prefixo: o launcher lê remakedefaults.reg dele."""
+    shutil.rmtree(app / "Contents" / "Configure.app", ignore_errors=True)
+
+
 def montar_bundle(template: Path, engine_tar: Path, saida: Path, receita: Receita) -> Path:
     saida.mkdir(parents=True, exist_ok=True)
     final = saida / f"{receita.nome_app}.app"
@@ -50,7 +55,6 @@ def montar_bundle(template: Path, engine_tar: Path, saida: Path, receita: Receit
         if destino_wine.exists():
             shutil.rmtree(destino_wine)
         wine.rename(destino_wine)
-        shutil.rmtree(contents / "Configure.app", ignore_errors=True)
         configurar_info_plist(contents / "Info.plist", receita)
 
         if final.exists():

@@ -6,7 +6,7 @@ import unittest
 from dataclasses import replace
 from pathlib import Path
 
-from bundle import montar_bundle
+from bundle import montar_bundle, remover_configuracao
 from receita import carregar_receita
 
 RECEITA = carregar_receita(Path(__file__).parent / "receitas" / "carros.json")
@@ -64,7 +64,14 @@ class TestBundle(unittest.TestCase):
         wine = app / "Contents" / "SharedSupport" / "wine" / "bin" / "wine"
         self.assertTrue(wine.is_file())
         self.assertTrue(os.access(wine, os.X_OK))
+        # o launcher precisa do Configure.app (remakedefaults.reg) para criar o prefixo
+        self.assertTrue((app / "Contents" / "Configure.app").exists())
+
+    def test_remover_configuracao(self):
+        app = self._montar()
+        remover_configuracao(app)
         self.assertFalse((app / "Contents" / "Configure.app").exists())
+        remover_configuracao(app)  # idempotente
 
     def test_info_plist(self):
         p = self._plist(self._montar())
