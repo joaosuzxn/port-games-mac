@@ -1,7 +1,7 @@
 ---
 id: 2
 titulo: "Carros.app que abre o jogo com dois cliques"
-tipo: ideia
+tipo: feature
 urgencia: P1
 status: aberto
 modulos: [app, wine]
@@ -27,3 +27,4 @@ ou montagem própria com builds Gcenx; camada gráfica a escolher por teste.
 
 ## Notas de execução
 2026-10-22: Spike: jogo roda no Wine (Sikarugir) com área virtual + D: como CD rotulado DISC2. Ver docs/analises/2026-10-22-teste-rapido-wine.md.
+2026-10-22: Spec aprovada pelo dono (docs/specs/2026-10-22-carros-app-design.md); plano em docs/plans/2026-10-22-carros-app.md.
