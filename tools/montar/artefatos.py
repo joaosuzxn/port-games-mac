@@ -51,13 +51,15 @@ def _instalar(origem: Path, destino: Path, esperado: str) -> bool:
 
 def _baixar(url: str, destino: Path, esperado: str) -> bool:
     temp = destino.with_name(destino.name + ".parcial")
-    with urllib.request.urlopen(url) as resp, open(temp, "wb") as f:
-        shutil.copyfileobj(resp, f, 1 << 20)
-    if sha256_arquivo(temp) != esperado:
-        temp.unlink()
-        return False
-    temp.replace(destino)
-    return True
+    try:
+        with urllib.request.urlopen(url) as resp, open(temp, "wb") as f:
+            shutil.copyfileobj(resp, f, 1 << 20)
+        if sha256_arquivo(temp) != esperado:
+            return False
+        temp.replace(destino)
+        return True
+    finally:
+        temp.unlink(missing_ok=True)
 
 
 def garantir_artefato(a: Artefato, cache: Path, fontes_locais: list[Path]) -> Path:

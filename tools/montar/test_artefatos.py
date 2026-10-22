@@ -3,8 +3,9 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
-from artefatos import Artefato, ArtefatoInvalido, carregar_artefatos, garantir_artefato, sha256_arquivo
+from artefatos import Artefato, ArtefatoInvalido, _baixar, carregar_artefatos, garantir_artefato, sha256_arquivo
 
 
 class TestArtefatos(unittest.TestCase):
@@ -54,6 +55,22 @@ class TestArtefatos(unittest.TestCase):
         self.assertEqual(arts["engine"].sha256, "67e29fb3d74f363af39c69ba11f9b13a79812c5db07cf4748672658e4a200a0e")
         self.assertEqual(arts["template"].arquivo, "Template-1.0.24.tar.xz")
         self.assertTrue(arts["template"].url.startswith("https://github.com/Sikarugir-App/Template/"))
+
+
+class TestBaixar(unittest.TestCase):
+    def test_apaga_parcial_se_o_download_falha(self):
+        tmp = Path(tempfile.mkdtemp())
+
+        class Resp:
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def read(self, n=-1): raise ConnectionResetError("caiu")
+
+        destino = tmp / "x.tar.xz"
+        with mock.patch("artefatos.urllib.request.urlopen", return_value=Resp()):
+            with self.assertRaises(OSError):
+                _baixar("https://exemplo.invalid/x", destino, "0" * 64)
+        self.assertEqual(list(tmp.iterdir()), [])
 
 
 if __name__ == "__main__":
