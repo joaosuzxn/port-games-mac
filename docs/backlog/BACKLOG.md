@@ -3,7 +3,7 @@
 > Gerado por `backlog board` em 2026-10-22. Não editar à mão: edite os itens em `itens/` e gere de novo.
 
 ## Agora
-- (vazio)
+- #12 · tarefa · P1 · infra · Refatorar o código para inglês (identificadores, comentários, mensagens, chaves das receitas) · há 1 dias
 
 ## Próximo ciclo
 - #3 · feature · P2 · app, wine, infra · Generalizar: transformar vários jogos Windows da Steam em .app no Mac · há 1 dias
