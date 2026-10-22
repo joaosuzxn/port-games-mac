@@ -63,7 +63,7 @@ steamcmd +@sSteamCmdForcePlatformType windows +force_install_dir "$PWD/jogo" +lo
 ### 3. Montar e instalar o app
 
 ```sh
-python3 tools/montar/montar.py carros --instalar
+python3 tools/builder/build.py carros --install
 ```
 
 Leva cerca de um minuto. O script:
@@ -72,9 +72,9 @@ Leva cerca de um minuto. O script:
 2. baixa e confere o Wine e o modelo de app (só na primeira vez);
 3. monta o `Carros.app`, cria o "Windows" interno e copia o jogo;
 4. aplica os ajustes: tela cheia, drive de CD virtual, gráficos e controles;
-5. com `--instalar`, copia o app para **Aplicativos**.
+5. com `--install`, copia o app para **Aplicativos**.
 
-Sem `--instalar`, o app fica em `build/Carros.app` e você pode arrastá-lo para onde quiser.
+Sem `--install`, o app fica em `build/Carros.app` e você pode arrastá-lo para onde quiser.
 
 ### 4. Jogar
 
@@ -104,14 +104,14 @@ valores acima.
 
 ## Problemas comuns
 
-**"arquivos do jogo não encontrados" ou "não é o build esperado" ao montar**
+**"game files not found" ou "is not the expected build" ao montar**
 Refaça o passo 2. O script só aceita a versão atual da Steam, conferida por hash.
 
 **O macOS diz que o app não pode ser aberto**
 Clique com o botão direito em **Carros** → **Abrir** → **Abrir**. Isso só é necessário uma vez.
 
 **Parou de abrir depois de uma atualização do macOS**
-Remonte com `python3 tools/montar/montar.py carros --instalar`. Os saves continuam onde estavam.
+Remonte com `python3 tools/builder/build.py carros --install`. Os saves continuam onde estavam.
 
 **Quero voltar os ajustes de vídeo ao padrão**
 Remontar o app faz isso.
@@ -125,14 +125,14 @@ cache do Wine, remova `~/Library/Caches/portcarros`.
 ## Para quem mexe no projeto
 
 ```sh
-python3 -m unittest discover -s tools/montar -t tools/montar   # testes
-python3 tools/montar/montar.py carros                          # só monta em build/
-node tools/backlog/backlog.mjs next                            # o que fazer a seguir
+python3 -m unittest discover -s tools/builder -t tools/builder   # testes
+python3 tools/builder/build.py carros                            # só monta em build/
+node tools/backlog/backlog.mjs next                              # o que fazer a seguir
 ```
 
-- `tools/montar/receitas/carros.json` guarda tudo o que é específico do Carros: executável e hash, rótulo do CD,
+- `tools/builder/recipes/carros.json` guarda tudo o que é específico do Carros: executável e hash, rótulo do CD,
   registro do Windows e camada gráfica.
-- `tools/montar/artefatos.json` guarda as versões e hashes do Wine e do modelo de app (Sikarugir).
+- `tools/builder/artifacts.json` guarda as versões e hashes do Wine e do modelo de app (Sikarugir).
 - As decisões estão em `docs/decisions/`, as investigações em `docs/analises/` e o desenho e o plano em
   `docs/specs/` e `docs/plans/`.
 - `CLAUDE.md` traz as regras do projeto. A principal: os arquivos do jogo (`jogo/`) e o app gerado (`build/`)

@@ -63,6 +63,12 @@ item na hora; (3) a memória aponta ids do backlog em vez de repetir o texto.
 Módulos: `jogo` (arquivos, DRM, patches, saves) · `wine` (camada de tradução, D3D→Metal) · `app` (.app,
 launcher, ícone) · `docs` · `infra` (ferramentas, scripts).
 
+## Idioma
+
+Código em inglês: nomes de arquivos, módulos, funções, variáveis, comentários, docstrings, mensagens dos comandos
+e chaves JSON (`recipes/*.json`, `artifacts.json`). Documentação em português (README, CLAUDE.md, `docs/**`, agentes
+e skills). Exceção: o formato de dados do backlog (campos, valores e seções em português, ver `docs/backlog/README.md`).
+
 ## Estrutura
 
     portcarros/
@@ -71,20 +77,20 @@ launcher, ícone) · `docs` · `infra` (ferramentas, scripts).
     ├── .claude/skills/adr-decisoes/            # ADRs
     ├── docs/                                   # analises, specs, plans, decisions, backlog
     ├── tools/backlog/backlog.mjs               # CLI do backlog
-    ├── tools/montar/                           # monta o .app (Python 3 stdlib); receitas/carros.json = o específico do jogo
+    ├── tools/builder/                          # monta o .app (Python 3 stdlib); recipes/carros.json = o específico do jogo
     ├── jogo/      (gitignored)                 # arquivos Windows do jogo
     └── build/     (gitignored)                 # Carros.app gerado
 
 ## Montar o app
 
-    python3 tools/montar/montar.py carros              # gera build/Carros.app (~2,2 GB, ~1 min)
-    python3 tools/montar/montar.py carros --instalar   # e copia para /Applications
-    python3 -m unittest discover -s tools/montar -t tools/montar   # testes
+    python3 tools/builder/build.py carros              # gera build/Carros.app (~2,2 GB, ~1 min)
+    python3 tools/builder/build.py carros --install    # e copia para /Applications
+    python3 -m unittest discover -s tools/builder -t tools/builder   # testes
 
 Artefatos (template Sikarugir 1.0.24 + engine WS12WineSikarugir 11.0_1) ficam em
-`~/Library/Caches/portcarros/artefatos`, conferidos por SHA-256 (`tools/montar/artefatos.json`).
+`~/Library/Caches/portcarros/artefatos`, conferidos por SHA-256 (`tools/builder/artifacts.json`).
 - 🚨 O launcher só cria o prefixo com o `Configure.app` presente (lê `remakedefaults.reg` dele); remover só no fim.
-- 🚨 Editar `system.reg`/`user.reg` só com o Wine do app parado (`parar_wine`), senão o wineserver sobrescreve.
+- 🚨 Editar `system.reg`/`user.reg` só com o Wine do app parado (`stop_wine`), senão o wineserver sobrescreve.
 
 ## Stack e ambiente
 

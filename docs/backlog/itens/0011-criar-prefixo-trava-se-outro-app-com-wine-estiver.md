@@ -14,12 +14,12 @@ validacao: null
 ---
 ## Contexto
 
-`montar.py carros-steam` estourou o limite de 300 s em `criar_prefixo` com o Spacewar.app (outro bundle Sikarugir) rodando; sem ele, 66 s.
+`build.py carros-steam` estourou o limite de 300 s em `create_prefix` com o Spacewar.app (outro bundle Sikarugir) rodando; sem ele, 66 s.
 
 ## Como reproduzir
 
 1. Abrir build/Spacewar.app.
-2. Rodar `python3 tools/montar/montar.py carros-steam`.
+2. Rodar `python3 tools/builder/build.py carros-steam`.
 3. Etapa do prefixo estoura 300 s.
 
 ## Proposta
