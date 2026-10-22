@@ -1,0 +1,10 @@
+# Arquivos do jogo (proprietários, da conta Steam do dono) — nunca versionar
+jogo/
+build/
+*.app/
+
+# steamcmd e caches
+steamcmd/
+.steam/
+
+.DS_Store
