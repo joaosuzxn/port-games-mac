@@ -14,6 +14,7 @@
 
 ## Quando der
 - #11 · bug · P3 · wine, infra · Criar prefixo trava se outro app com Wine estiver aberto · há 1 dias
+- #13 · ideia · P3 · app, jogo · Sincronizar saves com a Steam Cloud (jogos rodando fora do cliente) · há 1 dias
 
 ## Aguardando o dono testar
 - #4 · bug · P2 · wine · FPS baixo no teste com D9VK dentro do Wine · feito em 2026-10-22 · 90778b0

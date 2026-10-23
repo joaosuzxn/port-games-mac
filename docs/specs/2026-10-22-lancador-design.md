@@ -41,7 +41,15 @@ Depois, a intenção é que **outras pessoas** usem — por isso as escolhas de 
    variáveis de ambiente e chaves de registro; ver o log; salvar como receita do jogo.
 9. **Escolher o disco** de instalação (o RDR2 tem ~120 GB; o Mac do dono tem ~112 GB livres).
 10. **Primeiros jogos:** Carros (já funciona) e Red Dead Redemption 2.
-11. Saves e ajustes de cada jogo sobrevivem a reinstalar o app e o jogo.
+11. Saves e ajustes de cada jogo sobrevivem a reinstalar o app e o jogo. Saves ficam **só no Mac** nesta versão
+    (decisão do dono); o app avisa que a nuvem da Steam não sincroniza esses jogos.
+12. **Atualização sob controle do usuário** (decisão do dono): quando sai build novo na Steam, a capa mostra
+    `Atualizar`; o jogo instalado continua jogável na versão atual até o usuário atualizar. O app guarda, por jogo,
+    buildid e manifest de cada depot instalado. A receita vale para o appid (não para um build); hash de executável
+    deixa de bloquear e vira só informação de diagnóstico.
+13. **Todo jogo roda pela versão Windows** (decisão do dono), inclusive os que têm versão para Mac — sem desvio para
+    "Abrir na Steam". (Interpretação do Claude da resposta "roda traduzido mesmo"; vale para todos os jogos com
+    versão Mac, não só os quebrados.)
 
 ## Não-objetivos (agora)
 
@@ -50,7 +58,7 @@ Depois, a intenção é que **outras pessoas** usem — por isso as escolhas de 
 - Rodar a Steam de Windows dentro do Wine (rejeitado pelo dono).
 - Emulador de Steam / remoção de DRM (Goldberg, Steamless) — rejeitado pelo dono.
 - Modificar executáveis ou dados dos jogos (mantido desde o Carros; o dono recusou destravar 60 FPS assim).
-- Jogos que já têm versão nativa para Mac: continuam na Steam do Mac (ver "Decisões do Claude").
+- Sincronizar saves com a Steam Cloud (decisão do dono: saves só no Mac agora; nuvem completa depois, backlog #13).
 
 ## Antiobjetivos (fracasso mesmo funcionando)
 
@@ -69,7 +77,7 @@ Depois, a intenção é que **outras pessoas** usem — por isso as escolhas de 
 | Compilar/rodar código de terceiros exige aprovação do dono no modo automático do Claude Code | Passos de build da ponte e de ferramentas externas ficam em scripts que o dono aprova. |
 | Wine x86_64 sob Rosetta 2 | Jogos 32 e 64 bits via WoW64; ponte com metades i386 e x86_64. |
 | RDR2: só roda com DirectX 12 + **D3DMetal** (Vulkan não funciona no Mac, pelos relatos); o Rockstar Launcher não abre na engine atual (ServicesPipeTimeout; UI exige D3D10.1 + Direct2D) | RDR2 é a peça de maior risco; pode exigir outra engine Wine (ex.: build FOSS do CrossOver 26.3 com patches, PR #293 do Sikarugir) e o D3DMetal (uso pessoal ok, não distribuível). Conta Rockstar obrigatória no primeiro uso. |
-| 16 GB de RAM e ~112 GB livres no Mac do dono | Escolha de disco obrigatória; aviso de espaço antes de baixar. |
+| 16 GB de RAM e ~104 GB livres no Mac do dono | Escolha de disco e aviso de espaço antes de baixar. O dono vai liberar espaço no disco interno para o RDR2 (~120 GB). |
 | Bug #11: criar prefixo trava se outro app com Wine estiver aberto | O motor serializa criação de prefixo e não cria prefixo com jogo rodando. |
 
 ## O que o dono decidiu
@@ -88,13 +96,15 @@ Depois, a intenção é que **outras pessoas** usem — por isso as escolhas de 
   das Command Line Tools). O `tools/builder/` em Python continua como referência e para montar `.app` avulsos, até o
   `LauncherCore` cobrir o mesmo comportamento (com os mesmos casos de teste).
 - **Nome provisório do app:** "Port Games" (do repositório `port-games-mac`); trocar depois é barato.
-- **Um prefixo Wine por jogo**, em `~/Library/Application Support/PortGames/games/<appid>/` (ou no disco escolhido),
-  em vez de um `.app` por jogo. A engine Wine e a ponte ficam uma vez só, compartilhadas, versionadas por pasta.
+- **Um prefixo Wine por jogo**, sempre no disco interno em `~/Library/Application Support/PortGames/prefixes/<appid>/`
+  (o Wine precisa de links simbólicos, que exFAT não tem); os **arquivos do jogo** vão para o disco escolhido
+  (padrão: `~/Library/Application Support/PortGames/games/<appid>/`; discos externos precisam ser APFS ou HFS+),
+  ligados ao prefixo por um drive/link. Em vez de um `.app` por jogo. A engine Wine e a ponte ficam uma vez só, compartilhadas, versionadas por pasta.
 - **Download pelo DepotDownloader** (GPL-2.0, binário único para macOS arm64, `-os windows`, login `-qr`), executado
   como processo separado. Rejeitado: o truque `steam_dev.cfg` (`@sSteamCmdForcePlatformType windows`) que faz a Steam
   do Mac baixar versões Windows — ele troca também os jogos que têm versão Mac pela versão Windows (fere o antiobjetivo).
-- **Biblioteca:** jogos da conta com capa (CDN da Steam, arte vertical 600×900) e marcação de "tem versão Mac" —
-  esses mostram "Abrir na Steam" em vez de Baixar.
+- **Biblioteca:** jogos da conta com capa (CDN da Steam, arte vertical 600×900); todos com Baixar/Jogar pela versão
+  Windows (objetivo 13).
 - **Receita genérica padrão:** WineD3D para D3D9 e anteriores, `EmulateModeset` ligado, ponte ligada; renderizador
   para D3D11/12 a definir por teste. Receitas versionadas no repositório, por appid; ajustes do modo de teste ficam
   como receita local do usuário (sobrepõe a do repositório).
@@ -123,4 +133,5 @@ Depois, a intenção é que **outras pessoas** usem — por isso as escolhas de 
 5. Escolha de disco funciona, com aviso de espaço insuficiente.
 6. Saves e receitas locais sobrevivem a apagar e reinstalar o jogo e a atualizar o app.
 7. Nenhuma alteração na instalação da Steam do Mac que afete os jogos nativos de Mac.
+9. Build novo de um jogo instalado aparece como `Atualizar` na capa; atualizar mantém saves e receita local.
 8. RDR2: modo história jogável (critério da peça #10, com risco declarado).
