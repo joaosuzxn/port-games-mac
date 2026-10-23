@@ -95,17 +95,25 @@ public struct PrefixManager: Sendable {
         try FileManager.default.createDirectory(at: prefix, withIntermediateDirectories: true)
         let env = WineEnvironment.make(engine: engine, prefix: prefix, recipe: recipe)
         let timeout = winebootTimeout
+        let started = ContinuousClock.now
         do {
             let status = try await withThrowingTaskGroup(of: Int32.self) { group in
                 group.addTask { try await runner.run(["wineboot", "-u"], env: env, cwd: nil) }
                 group.addTask {
                     try await Task.sleep(for: timeout)
+                    // Stop Wine before giving up: a wine client stuck on a wedged wineserver ignores the
+                    // cancel, and the group waits for it; killing the server is what frees it.
+                    try? await runner.stop(timeout: .seconds(30))
                     throw PrefixError.creationTimedOut(appID: appID)
                 }
                 defer { group.cancelAll() }
                 return try await group.next()!
             }
-            guard status == 0 else { throw PrefixError.creationFailed(appID: appID, status: status) }
+            guard status == 0 else {
+                // Ended by the timeout's stop, it is a timeout (the message that tells the user what happened).
+                if ContinuousClock.now - started >= timeout { throw PrefixError.creationTimedOut(appID: appID) }
+                throw PrefixError.creationFailed(appID: appID, status: status)
+            }
         } catch {
             // wineboot's wineserver outlives it; it must be down before the lock is released (bug #11).
             // Detached, so that a cancelled caller does not cancel the stop as well.
