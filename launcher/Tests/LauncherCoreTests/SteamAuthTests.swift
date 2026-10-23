@@ -174,6 +174,23 @@ struct SteamAuthTests {
         #expect(try store.load() == nil)
     }
 
+    /// Steam being busy or down is not a logout: the session stays and the error goes up.
+    @Test(arguments: [
+        FakeHTTP.Response(status: 429, json: "", eresult: nil),
+        FakeHTTP.Response(json: #"{"response":{}}"#, eresult: 20),  // ServiceUnavailable
+        FakeHTTP.Response(json: #"{"response":{}}"#, eresult: 84),  // RateLimitExceeded
+        FakeHTTP.Response(json: #"{"response":{}}"#),  // OK but no access token
+    ])
+    func transientFailureKeepsTheSession(response: FakeHTTP.Response) async throws {
+        let http = FakeHTTP()
+        await http.on("GenerateAccessTokenForApp", response)
+        let stored = SteamSession(accountName: "joao", steamID: 1, refreshToken: jwt(), accessToken: "old")
+        let store = MemoryTokenStore(stored)
+
+        await #expect(throws: (any Error).self) { try await SteamAuth(http: http, store: store).validSession() }
+        #expect(try store.load() == stored)
+    }
+
     @Test func expiredRefreshTokenNeedsNoNetwork() async throws {
         let http = FakeHTTP()
         let store = MemoryTokenStore(SteamSession(
