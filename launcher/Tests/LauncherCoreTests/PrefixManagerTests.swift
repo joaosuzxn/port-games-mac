@@ -81,6 +81,8 @@ private struct FakeRunner: WineRunning {
     var error: CancellationError?
     /// wineboot that never ends (bug #11), until cancelled.
     var hangs = false
+    /// wineboot that ignores cancellation (a wine client stuck on a wedged wineserver) until `stop`.
+    var hangsUntilStop = false
 
     func run(_ args: [String], env: [String: String], cwd: URL?) async throws -> Int32 {
         await recorder.begin(prefix, args)
@@ -91,6 +93,11 @@ private struct FakeRunner: WineRunning {
         if hangs {
             defer { Task { await recorder.end() } }
             try await Task.sleep(for: .seconds(60))
+        }
+        if hangsUntilStop {
+            while await recorder.stops.isEmpty { try? await Task.sleep(for: .milliseconds(20)) }
+            await recorder.end()
+            return 1
         }
         try await Task.sleep(for: .milliseconds(150))
         if status == 0 {
@@ -338,7 +345,25 @@ struct PrefixManagerTests {
                 try await manager.ensurePrefix(appID: 331160, recipe: .generic, gameDir: dir.appendingPathComponent("G"))
             }
             #expect(ContinuousClock.now - started < .seconds(5))
-            #expect(await recorder.stops == [paths.prefix(331160).path])
+            let stops = await recorder.stops
+            #expect(!stops.isEmpty && stops.allSatisfy { $0 == paths.prefix(331160).path })
+        }
+    }
+
+    /// The timeout must hold even when wine ignores the cancel: Wine is stopped, which frees it.
+    @Test(.timeLimit(.minutes(1))) func timeoutStopsAWinebootThatIgnoresCancel() async throws {
+        try await withAsyncScratchDirectory { dir in
+            let paths = try makePaths(in: dir)
+            let recorder = Recorder()
+            let manager = PrefixManager(paths: paths, engine: engine,
+                makeRunner: { prefix, _ in FakeRunner(prefix: prefix, recorder: recorder, hangsUntilStop: true) },
+                winebootTimeout: .milliseconds(300))
+            let started = ContinuousClock.now
+
+            await #expect(throws: PrefixError.creationTimedOut(appID: 331160)) {
+                try await manager.ensurePrefix(appID: 331160, recipe: .generic, gameDir: dir.appendingPathComponent("G"))
+            }
+            #expect(ContinuousClock.now - started < .seconds(5))
         }
     }
 
