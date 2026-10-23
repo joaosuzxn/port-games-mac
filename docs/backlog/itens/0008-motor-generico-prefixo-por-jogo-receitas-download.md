@@ -19,4 +19,4 @@ validacao: null
 ## Proposta
 
 ## Notas de execução
-
+2026-10-22: Plano em docs/plans/2026-10-22-launcher-core.md (12 tasks: pacote Swift LauncherCore + launcherctl).
