@@ -22,9 +22,22 @@ public enum EngineArtifacts {
 
     /// The installed engine, installing it first if needed (two archives, ~1 minute to extract).
     public static func ensureEngine(paths: Paths) async throws -> Engine {
-        if let engine = EngineInstaller.installed(id: engineID, paths: paths) { return engine }
-        let templateFile = try await ArtifactStore.ensure(template, cache: paths.cache, localSources: localSources)
-        let engineFile = try await ArtifactStore.ensure(engine, cache: paths.cache, localSources: localSources)
+        try await ensureEngine(paths: paths, template: template, engine: engine, localSources: localSources)
+    }
+
+    static func ensureEngine(
+        paths: Paths, template: Artifact, engine: Artifact, localSources: [URL],
+        download: (URL, URL) async throws -> Void = ArtifactStore.downloadWithURLSession
+    ) async throws -> Engine {
+        if let installed = EngineInstaller.installed(id: engineID, paths: paths) { return installed }
+        // One install at a time (two first plays, the CLI and the app): the archives and the engine folder
+        // are shared. Whoever waited finds it installed.
+        try FileManager.default.createDirectory(at: paths.engines, withIntermediateDirectories: true)
+        let lock = try await FileLock.acquire(paths.engines.appendingPathComponent(".install.lock"))
+        defer { lock.release() }
+        if let installed = EngineInstaller.installed(id: engineID, paths: paths) { return installed }
+        let templateFile = try await ArtifactStore.ensure(template, cache: paths.cache, localSources: localSources, download: download)
+        let engineFile = try await ArtifactStore.ensure(engine, cache: paths.cache, localSources: localSources, download: download)
         return try EngineInstaller.install(template: templateFile, engine: engineFile, id: engineID, paths: paths)
     }
 }

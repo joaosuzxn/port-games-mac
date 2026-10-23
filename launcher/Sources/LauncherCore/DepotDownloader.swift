@@ -174,6 +174,11 @@ public enum DepotDownloaderTool {
         let folder = paths.root.appendingPathComponent("tools", isDirectory: true)
             .appendingPathComponent((artifact.file as NSString).deletingPathExtension, isDirectory: true)
         let binary = folder.appendingPathComponent("DepotDownloader")
+        // One first-time setup at a time: two would race on the binary and both see "new" store folders.
+        let tools = folder.deletingLastPathComponent()
+        try fileManager.createDirectory(at: tools, withIntermediateDirectories: true)
+        let lock = try await FileLock.acquire(tools.appendingPathComponent(".install.lock"))
+        defer { lock.release() }
         if !fileManager.isExecutableFile(atPath: binary.path) {
             let zip = try await ArtifactStore.ensure(artifact, cache: paths.cache, localSources: [], download: download)
             try await extract(zip, binaryTo: binary)
