@@ -7,6 +7,7 @@ import Foundation
 /// <root>/wine/bin/{wine,wineserver}   Wine itself (from the engine archive)
 /// <root>/Frameworks/                  libraries Wine loads (from the template)
 /// <root>/renderer/{d9vk,dxvk,d3dmetal,…}  graphics layers (from the template)
+/// <root>/Resources/vulkan/icd.d/      Vulkan driver manifests (from the template)
 /// ```
 public struct Engine: Sendable, Equatable {
     public let id: String
@@ -20,6 +21,11 @@ public struct Engine: Sendable, Equatable {
     public var wineBin: URL { root.appendingPathComponent("wine/bin/wine", isDirectory: false) }
     public var wineserver: URL { root.appendingPathComponent("wine/bin/wineserver", isDirectory: false) }
     public var frameworks: URL { root.appendingPathComponent("Frameworks", isDirectory: true) }
+    /// Manifest of the Vulkan driver over Metal. Its `library_path` is relative (`../../../Frameworks/…`),
+    /// so `Resources/` must stay next to `Frameworks/`.
+    public var vulkanICD: URL {
+        root.appendingPathComponent("Resources/vulkan/icd.d/kosmickrisp_mesa_icd.json", isDirectory: false)
+    }
 
     /// Folder with the files of a graphics layer, or `nil` for `.wined3d` (built into Wine).
     ///
@@ -59,7 +65,9 @@ public enum EngineInstaller {
     public static func installed(id: String, paths: Paths) -> Engine? {
         let engine = Engine(id: id, root: paths.engines.appendingPathComponent(id, isDirectory: true))
         let fileManager = FileManager.default
-        let pieces = [engine.wineBin, engine.frameworks, engine.root.appendingPathComponent("renderer")]
+        let pieces = [
+            engine.wineBin, engine.frameworks, engine.root.appendingPathComponent("renderer"), engine.vulkanICD,
+        ]
         return pieces.allSatisfy { fileManager.fileExists(atPath: $0.path) } ? engine : nil
     }
 
@@ -92,7 +100,11 @@ public enum EngineInstaller {
 
         let frameworks = templateApp.appendingPathComponent("Contents/Frameworks", isDirectory: true)
         let renderer = templateApp.appendingPathComponent("Contents/SharedSupport/renderer", isDirectory: true)
-        for (folder, name) in [(frameworks, "Contents/Frameworks"), (renderer, "Contents/SharedSupport/renderer")] {
+        let vulkan = templateApp.appendingPathComponent("Contents/Resources/vulkan", isDirectory: true)
+        for (folder, name) in [
+            (frameworks, "Contents/Frameworks"), (renderer, "Contents/SharedSupport/renderer"),
+            (vulkan, "Contents/Resources/vulkan"),
+        ] {
             try require(directory: folder, named: name, in: template)
         }
         guard fileManager.fileExists(atPath: wineBundle.appendingPathComponent("bin/wine").path) else {
@@ -102,6 +114,9 @@ public enum EngineInstaller {
         try fileManager.moveItem(at: wineBundle, to: assembled.appendingPathComponent("wine", isDirectory: true))
         try fileManager.moveItem(at: frameworks, to: assembled.appendingPathComponent("Frameworks", isDirectory: true))
         try fileManager.moveItem(at: renderer, to: assembled.appendingPathComponent("renderer", isDirectory: true))
+        let resources = assembled.appendingPathComponent("Resources", isDirectory: true)
+        try fileManager.createDirectory(at: resources, withIntermediateDirectories: false)
+        try fileManager.moveItem(at: vulkan, to: resources.appendingPathComponent("vulkan", isDirectory: true))
 
         let root = paths.engines.appendingPathComponent(id, isDirectory: true)
         try replace(root, with: assembled)
