@@ -112,8 +112,17 @@ public enum ArtifactStore {
         let handle = try FileHandle(forReadingFrom: file)
         defer { try? handle.close() }
         var hasher = SHA256()
-        while let block = try handle.read(upToCount: 1 << 20), !block.isEmpty {
-            hasher.update(data: block)
+        // `read(upToCount:)` returns autoreleased buffers; without draining a pool on each pass they
+        // all stay alive until the loop ends (about the whole file in memory for a 1 GiB archive).
+        var more = true
+        while more {
+            try autoreleasepool {
+                if let block = try handle.read(upToCount: 1 << 20), !block.isEmpty {
+                    hasher.update(data: block)
+                } else {
+                    more = false
+                }
+            }
         }
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
