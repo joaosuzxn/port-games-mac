@@ -20,3 +20,6 @@ __pycache__/
 
 # Jogos de teste baixados (proprietários) — nunca versionar
 jogos/
+
+# Swift (launcher)
+launcher/.build/
