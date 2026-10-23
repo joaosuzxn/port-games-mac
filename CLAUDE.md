@@ -78,8 +78,19 @@ e skills). Exceção: o formato de dados do backlog (campos, valores e seções 
     ├── docs/                                   # analises, specs, plans, decisions, backlog
     ├── tools/backlog/backlog.mjs               # CLI do backlog
     ├── tools/builder/                          # monta o .app (Python 3 stdlib); recipes/carros.json = o específico do jogo
+    ├── launcher/                               # lançador: pacote Swift LauncherCore + launcherctl (ver launcher/README.md)
+    ├── spikes/steam-bridge/                    # ponte lsteamclient (build_bridge.sh publica para o lançador)
     ├── jogo/      (gitignored)                 # arquivos Windows do jogo
     └── build/     (gitignored)                 # Carros.app gerado
+
+## Lançador (`launcher/`)
+
+    swift build -c release --package-path launcher        # launcherctl
+    swift test --package-path launcher                    # testes; + PORTGAMES_INTEGRATION=1 para Wine/arquivos reais
+    bash spikes/steam-bridge/build_bridge.sh              # publica a ponte (código de terceiros: o dono roda)
+
+- 🚨 Nunca `Process.waitUntilExit()` em código async: travava a suíte. Esperar processo por `terminationHandler`.
+- 🚨 Wine do Sikarugir chamado direto exige `SikarugirAppWine11=1` (já no `WineEnvironment`).
 
 ## Montar o app
 

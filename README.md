@@ -122,6 +122,12 @@ cache do Wine, remova `~/Library/Caches/portcarros`.
 
 ---
 
+## Lançador (em construção)
+
+Um lançador para vários jogos de Windows da Steam, sem montar um `.app` por jogo: login por QR, biblioteca da
+conta, baixar, jogar pela Steam do Mac. O motor e a ferramenta de terminal `launcherctl` estão em `launcher/`
+(veja `launcher/README.md`); a interface gráfica vem depois.
+
 ## Para quem mexe no projeto
 
 ```sh
