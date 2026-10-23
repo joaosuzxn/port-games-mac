@@ -20,18 +20,19 @@ public enum LauncherError: Error, LocalizedError, Equatable {
 
 /// A game started by the launcher.
 public struct RunningGame: Sendable {
-    let game: Process
+    let exit: ProcessExit
     let runner: any WineRunning
 
-    /// Waits for the game to end and returns its exit code. Wine (the Steam stub, services) keeps running
-    /// until `stop()`.
-    public func wait() async -> Int32 {
-        let (stream, continuation) = AsyncStream<Void>.makeStream()
-        game.terminationHandler = { _ in continuation.finish() }
-        // It may have ended before the handler was set.
-        if !game.isRunning { continuation.finish() }
-        for await _ in stream {}
-        return game.terminationStatus
+    init(game: Process, runner: any WineRunning) {
+        exit = ProcessExit(game)
+        self.runner = runner
+    }
+
+    /// Waits for the game to end and returns its exit code; any number of callers may wait. Cancelling
+    /// a waiter throws `CancellationError` and leaves the game running. Wine (the Steam stub, services)
+    /// keeps running until `stop()`.
+    public func wait() async throws -> Int32 {
+        try await exit.wait()
     }
 
     /// Stops every Wine process of the game's prefix.
@@ -108,20 +109,34 @@ public struct GameLauncher: Sendable {
         let prefix = paths.prefix(appID)
         guard !isPrefixRunning(prefix) else { throw LauncherError.alreadyRunning(appID) }
 
+        // From here until the game's Wine is up, one play of this game at a time (also across processes):
+        // a second one would prepare the prefix and so stop the first one's Wine.
+        try FileManager.default.createDirectory(at: paths.prefixes, withIntermediateDirectories: true)
+        let lock = try await FileLock.acquire(paths.prefixes.appendingPathComponent(".\(appID).play.lock"))
+        defer { lock.release() }
+        guard !isPrefixRunning(prefix) else { throw LauncherError.alreadyRunning(appID) }
+
         try await ensureSteam()
         let ready = try await preparePrefix(appID, recipe, gameDir)
         try await stageBridge(engine, ready)
 
         let runner = makeRunner(ready, paths.logs.appendingPathComponent("\(appID).log"))
         let env = WineEnvironment.make(engine: engine, prefix: ready, recipe: recipe, extra: Bridge.environment(appID: appID))
-        // The stub tells games that Steam is running; give it a moment before the game asks.
-        _ = try await runner.spawn([Self.steamStub], env: env, cwd: nil)
-        try await Task.sleep(for: steamStubDelay)
+        do {
+            // The stub tells games that Steam is running; give it a moment before the game asks.
+            _ = try await runner.spawn([Self.steamStub], env: env, cwd: nil)
+            try await Task.sleep(for: steamStubDelay)
 
-        let parts = executable.split(whereSeparator: { $0 == "/" || $0 == "\\" }).map(String.init)
-        let cwd = parts.dropLast().reduce(gameDir) { $0.appendingPathComponent($1, isDirectory: true) }
-        let game = try await runner.spawn([#"G:\"# + parts.joined(separator: #"\"#)] + arguments, env: env, cwd: cwd)
-        return RunningGame(game: game, runner: runner)
+            let parts = executable.split(whereSeparator: { $0 == "/" || $0 == "\\" }).map(String.init)
+            let cwd = parts.dropLast().reduce(gameDir) { $0.appendingPathComponent($1, isDirectory: true) }
+            let game = try await runner.spawn([#"G:\"# + parts.joined(separator: #"\"#)] + arguments, env: env, cwd: cwd)
+            return RunningGame(game: game, runner: runner)
+        } catch {
+            // No game to hand back: take down what was started (the stub), or every later play would
+            // find the prefix "already running". Detached, so a cancelled caller does not cancel the stop.
+            await Task.detached { try? await runner.stop(timeout: .seconds(30)) }.value
+            throw error
+        }
     }
 
     /// The recipe's executable (with its arguments), else Steam's first Windows launch option.
@@ -139,5 +154,50 @@ public struct GameLauncher: Sendable {
             guard ContinuousClock.now < deadline else { throw LauncherError.steamNotLoggedIn }
             try await Task.sleep(for: pollInterval)
         }
+    }
+}
+
+/// The exit of a process, waited for by any number of callers, each cancellable.
+final class ProcessExit: @unchecked Sendable {
+    private let lock = NSLock()
+    private var status: Int32?
+    private var waiters: [UUID: CheckedContinuation<Int32, Error>] = [:]
+
+    init(_ process: Process) {
+        process.terminationHandler = { [weak self] in self?.finish($0.terminationStatus) }
+        // It may have ended before the handler was set; finishing twice is harmless.
+        if !process.isRunning { finish(process.terminationStatus) }
+    }
+
+    func wait() async throws -> Int32 {
+        let id = UUID()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                lock.lock()
+                if let status {
+                    lock.unlock()
+                    continuation.resume(returning: status)
+                } else if Task.isCancelled {
+                    lock.unlock()
+                    continuation.resume(throwing: CancellationError())
+                } else {
+                    waiters[id] = continuation
+                    lock.unlock()
+                }
+            }
+        } onCancel: {
+            let waiter = lock.withLock { waiters.removeValue(forKey: id) }
+            waiter?.resume(throwing: CancellationError())
+        }
+    }
+
+    private func finish(_ code: Int32) {
+        let toResume: [CheckedContinuation<Int32, Error>] = lock.withLock {
+            guard status == nil else { return [] }
+            status = code
+            defer { waiters.removeAll() }
+            return Array(waiters.values)
+        }
+        for waiter in toResume { waiter.resume(returning: code) }
     }
 }
