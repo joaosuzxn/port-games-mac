@@ -78,9 +78,14 @@ private struct FakeRunner: WineRunning {
     let prefix: URL
     let recorder: Recorder
     var status: Int32 = 0
+    var error: CancellationError?
 
     func run(_ args: [String], env: [String: String], cwd: URL?) async throws -> Int32 {
         await recorder.begin(prefix, args)
+        if let error {
+            await recorder.end()
+            throw error
+        }
         try await Task.sleep(for: .milliseconds(150))
         if status == 0 {
             try makeFakePrefix(prefix, outsideDocuments: prefix.deletingLastPathComponent()
@@ -261,6 +266,22 @@ struct PrefixManagerTests {
             _ = try? await manager(paths, recorder, status: 1)
                 .ensurePrefix(appID: 331160, recipe: carros(in: paths), gameDir: dir.appendingPathComponent("G"))
             #expect(await recorder.runs.count == 2)
+        }
+    }
+
+    @Test func throwingWinebootStillStopsWine() async throws {
+        try await withAsyncScratchDirectory { dir in
+            let paths = try makePaths(in: dir)
+            let recorder = Recorder()
+            let manager = PrefixManager(paths: paths, engine: engine) { prefix, _ in
+                FakeRunner(prefix: prefix, recorder: recorder, error: CancellationError())
+            }
+
+            await #expect(throws: CancellationError.self) {
+                try await manager.ensurePrefix(appID: 331160, recipe: .generic, gameDir: dir.appendingPathComponent("G"))
+            }
+            // The wineserver wineboot started must be down before the creation lock is released.
+            #expect(await recorder.stops == [paths.prefix(331160).path])
         }
     }
 
