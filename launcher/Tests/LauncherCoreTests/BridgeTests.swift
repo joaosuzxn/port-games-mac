@@ -72,6 +72,73 @@ struct BridgeTests {
         }
     }
 
+    /// The engine is shared: a game of another prefix may have these files mapped. Staging again with
+    /// the same bridge must leave them alone (same file, not a new one in its place).
+    @Test func restagingLeavesUnchangedEngineFilesAlone() throws {
+        try withScratchDirectory { dir in
+            let paths = makePaths(in: dir)
+            try publishFakeBridge(paths)
+            let engine = Engine(id: engineID, root: dir.appendingPathComponent("engine", isDirectory: true))
+            let bridge = try Bridge(paths: paths, engineID: engineID)
+            let wineLib = engine.root.appendingPathComponent("wine/lib/wine")
+            let files = ["x86_64-unix/lsteamclient.so", "x86_64-windows/lsteamclient.dll", "i386-windows/lsteamclient.dll"]
+                .map { wineLib.appendingPathComponent($0) }
+            func inodes() throws -> [Int] {
+                try files.map { try FileManager.default.attributesOfItem(atPath: $0.path)[.systemFileNumber] as! Int }
+            }
+
+            try bridge.stage(into: engine, prefix: dir.appendingPathComponent("prefix1"))
+            let before = try inodes()
+            try bridge.stage(into: engine, prefix: dir.appendingPathComponent("prefix2"))
+
+            #expect(try inodes() == before)
+        }
+    }
+
+    /// The signature comes off before the library is in place, so no Wine ever loads a signed copy.
+    @Test func unixLibraryIsUnsignedWhenItLands() throws {
+        try withScratchDirectory { dir in
+            let paths = makePaths(in: dir)
+            try publishFakeBridge(paths)
+            // A real signed Mach-O stands in for lsteamclient.so.
+            try FileManager.default.removeItem(at: paths.bridge.appendingPathComponent("\(engineID)/lsteamclient.so"))
+            try FileManager.default.copyItem(
+                at: URL(fileURLWithPath: "/usr/bin/true"),
+                to: paths.bridge.appendingPathComponent("\(engineID)/lsteamclient.so"))
+            let engine = Engine(id: engineID, root: dir.appendingPathComponent("engine", isDirectory: true))
+
+            try Bridge(paths: paths, engineID: engineID).stage(into: engine, prefix: dir.appendingPathComponent("prefix"))
+
+            let codesign = Process()
+            codesign.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+            codesign.arguments = ["-v", engine.root.appendingPathComponent("wine/lib/wine/x86_64-unix/lsteamclient.so").path]
+            codesign.standardError = FileHandle.nullDevice
+            try codesign.run()
+            codesign.waitUntilExit()
+            #expect(codesign.terminationStatus != 0, "still signed")
+            // Nothing temporary is left next to it.
+            let left = try FileManager.default.contentsOfDirectory(
+                atPath: engine.root.appendingPathComponent("wine/lib/wine/x86_64-unix").path)
+            #expect(left == ["lsteamclient.so"])
+        }
+    }
+
+    /// A bridge DLL that is not a usable PE is refused before anything is written.
+    @Test func badBridgeChangesNothing() throws {
+        try withScratchDirectory { dir in
+            let paths = makePaths(in: dir)
+            try publishFakeBridge(paths)
+            try Data("not a PE".utf8).write(to: paths.bridge.appendingPathComponent("\(engineID)/x86_64-windows/lsteamclient.dll"))
+            let engine = Engine(id: engineID, root: dir.appendingPathComponent("engine", isDirectory: true))
+
+            #expect(throws: PEForwarderError.self) {
+                try Bridge(paths: paths, engineID: engineID).stage(into: engine, prefix: dir.appendingPathComponent("prefix"))
+            }
+            #expect(!FileManager.default.fileExists(atPath: engine.root.path))
+            #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent("prefix").path))
+        }
+    }
+
     @Test func missingBridgeIsClearError() throws {
         try withScratchDirectory { dir in
             let paths = makePaths(in: dir)

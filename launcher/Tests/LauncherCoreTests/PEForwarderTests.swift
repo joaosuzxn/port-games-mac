@@ -118,6 +118,31 @@ struct PEForwarderTests {
         }
     }
 
+    /// Corrupt input must throw, never trap (a trap takes the whole launcher down).
+    @Test func malformedExportDirectoryThrows() throws {
+        let bridge = [UInt8](try makeFakeBridge())
+        let image = try PEImage(Data(bridge))
+        let directory = try #require(image.offset(image.directories[0].rva))
+        for (field, value) in [(16, UInt32.max), (16, UInt32.max - 1), (20, UInt32.max), (24, UInt32.max)] {
+            var corrupt = bridge
+            corrupt.put32(value, at: directory + field)
+            #expect(throws: PEForwarderError.self, "field +\(field) = \(value)") {
+                try PEForwarder.generate(from: Data(corrupt), target: "lsteamclient")
+            }
+        }
+    }
+
+    @Test func everyTruncationThrows() throws {
+        let bridge = try makeFakeBridge()
+        // Cut anywhere before the end of the export section: what the forwarder is built from is incomplete.
+        let edata = try #require(PEImage(bridge).sections.first { $0.name == ".edata" })
+        for length in stride(from: 0, to: Int(edata.rawOffset + edata.virtualSize), by: 3) {
+            #expect(throws: PEForwarderError.self, "length \(length)") {
+                try PEForwarder.generate(from: bridge.prefix(length), target: "lsteamclient")
+            }
+        }
+    }
+
     @Test func notPEAndTruncatedAreErrors() throws {
         #expect(throws: PEForwarderError.notPE) { try PEForwarder.exports(of: Data("hello".utf8)) }
         let bridge = try makeFakeBridge()
