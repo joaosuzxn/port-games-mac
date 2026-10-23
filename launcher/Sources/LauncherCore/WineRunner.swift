@@ -116,7 +116,10 @@ public actor WineRunner: WineRunning {
         let process = Process()
         process.executableURL = executable
         process.arguments = args
-        process.environment = ProcessInfo.processInfo.environment.merging(env) { _, new in new }
+        var environment = ProcessInfo.processInfo.environment.merging(env) { _, new in new }
+        // Always this runner's prefix: any other one (or ~/.wine) would be out of reach of `stop`.
+        environment["WINEPREFIX"] = prefix.standardizedFileURL.path
+        process.environment = environment
         process.currentDirectoryURL = cwd
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = output
