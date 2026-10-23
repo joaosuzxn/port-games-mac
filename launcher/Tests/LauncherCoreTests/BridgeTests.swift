@@ -139,6 +139,33 @@ struct BridgeTests {
         }
     }
 
+    /// The bridge the owner published with build_bridge.sh, staged into a scratch engine and prefix.
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["PORTGAMES_INTEGRATION"] == "1"))
+    func stagesThePublishedBridge() throws {
+        let bridge = try Bridge(paths: .standard, engineID: engineID)
+        try withScratchDirectory { dir in
+            let engine = Engine(id: engineID, root: dir.appendingPathComponent("engine", isDirectory: true))
+            let prefix = dir.appendingPathComponent("prefix", isDirectory: true)
+
+            try bridge.stage(into: engine, prefix: prefix)
+
+            let so = engine.root.appendingPathComponent("wine/lib/wine/x86_64-unix/lsteamclient.so")
+            let codesign = Process()
+            codesign.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+            codesign.arguments = ["-v", so.path]
+            codesign.standardError = FileHandle.nullDevice
+            try codesign.run()
+            codesign.waitUntilExit()
+            #expect(codesign.terminationStatus != 0, "lsteamclient.so is still signed")
+            let steam = prefix.appendingPathComponent("drive_c/Program Files (x86)/Steam")
+            for name in ["steamclient.dll", "bin64/steamclient.dll", "steamclient64.dll"] {
+                let exports = try PEImage(Data(contentsOf: steam.appendingPathComponent(name))).exports()
+                #expect(exports.count > 50, "\(name)")
+                #expect(exports.contains { $0.name == "CreateInterface" && $0.forward == "lsteamclient.CreateInterface" })
+            }
+        }
+    }
+
     @Test func missingBridgeIsClearError() throws {
         try withScratchDirectory { dir in
             let paths = makePaths(in: dir)
