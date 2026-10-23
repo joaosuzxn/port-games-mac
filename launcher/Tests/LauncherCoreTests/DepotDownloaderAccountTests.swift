@@ -114,6 +114,38 @@ struct DepotDownloaderAccountTests {
         }
     }
 
+    /// Logout must not leave the refresh token behind in DepotDownloader's store.
+    @Test func removingATokenKeepsEverythingElse() throws {
+        try withScratchDirectory { dir in
+            let file = dir.appendingPathComponent("AssemFiles/account.config")
+            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try AccountConfig.compress(Data(fixture())).write(to: file)
+            let store = DepotDownloaderAccountStore(file: file)
+
+            try store.removeToken(account: "JOAO")
+
+            #expect(try store.token(account: "joao") == nil)
+            #expect(try AccountConfig.loginTokens(in: Data(contentsOf: file)) == ["other": "other-token"])
+            let rest = try AccountConfig.fields(of: AccountConfig.decompress(Data(contentsOf: file))).filter { $0.number != 4 }
+            #expect(rest.map(\.bytes) == (try AccountConfig.fields(of: Data(fixture())).filter { $0.number != 4 }.map(\.bytes)))
+            // Nothing to remove (no file) is fine.
+            try DepotDownloaderAccountStore(file: dir.appendingPathComponent("none/account.config")).removeToken(account: "joao")
+        }
+    }
+
+    /// It holds a long-lived refresh token: readable by the user only.
+    @Test func storeIsPrivateToTheUser() throws {
+        try withScratchDirectory { dir in
+            let store = DepotDownloaderAccountStore(file: dir.appendingPathComponent("AssemFiles/account.config"))
+            try store.setToken("t", account: "joao")
+            let mode = try FileManager.default.attributesOfItem(atPath: store.file.path)[.posixPermissions] as? Int
+            #expect(mode == 0o600)
+            try store.removeToken(account: "joao")
+            let after = try FileManager.default.attributesOfItem(atPath: store.file.path)[.posixPermissions] as? Int
+            #expect(after == 0o600)
+        }
+    }
+
     @Test func locatesTheStoreCreatedByThisBinary() throws {
         try withScratchDirectory { dir in
             let root = dir.appendingPathComponent("IsolatedStorage", isDirectory: true)
