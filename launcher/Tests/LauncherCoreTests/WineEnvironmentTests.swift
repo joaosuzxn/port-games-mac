@@ -302,6 +302,20 @@ struct WineRunnerTests {
         }
     }
 
+    @Test func runAlwaysUsesTheRunnersPrefix() async throws {
+        try await withAsyncScratchDirectory { dir in
+            let fixture = try RunnerFixture(in: dir)
+
+            // Missing or different WINEPREFIX: Wine would boot ~/.wine or another prefix that `stop` cannot reach.
+            _ = try await fixture.runner.run(["first"], env: [:], cwd: nil)
+            _ = try await fixture.runner.run(["second"], env: ["WINEPREFIX": "/elsewhere"], cwd: nil)
+
+            let log = read(fixture.log)
+            #expect(log.components(separatedBy: "prefix=\(fixture.prefix.path)\n").count == 3)
+            #expect(!log.contains("prefix=/elsewhere"))
+        }
+    }
+
     @Test func runAppendsToLog() async throws {
         try await withAsyncScratchDirectory { dir in
             let fixture = try RunnerFixture(in: dir)
