@@ -33,7 +33,15 @@ private func makeFakeBinary(in dir: URL, store: URL, isolatedRoot: URL) throws -
             echo "Downloading depot 331162"
             echo " 50.00% /g/c.dat"
             echo "100.00% /g/d.dat"
+            echo "Depot 331161 - Downloaded 3000 bytes (3000 bytes uncompressed)"
+            echo "Depot 331162 - Downloaded 1000 bytes (1000 bytes uncompressed)"
             echo "Total downloaded: 4000 bytes"
+            exit 0 ;;
+          partial)
+            echo "Argument #7 -depot was not used."
+            echo "Processing depot 331161"
+            echo "Depot 331161 - Downloaded 3000 bytes (3000 bytes uncompressed)"
+            echo "Total downloaded: 3000 bytes (3000 bytes uncompressed) from 1 depots"
             exit 0 ;;
           auth)
             echo "Access token was rejected (InvalidPassword)."
@@ -50,6 +58,8 @@ private func makeFakeBinary(in dir: URL, store: URL, isolatedRoot: URL) throws -
             echo "start $(date +%s%N)" >> "$here/runs"
             /bin/sleep 0.4
             echo "end $(date +%s%N)" >> "$here/runs"
+            echo "Depot 331161 - Downloaded 1 bytes"
+            echo "Depot 331162 - Downloaded 1 bytes"
             exit 0 ;;
           sleep) exec /bin/sleep 30 ;;
         esac
@@ -124,8 +134,10 @@ struct DepotDownloaderTests {
             try await fixture.downloader.download(
                 appID: 331160, depots: depots, into: target, session: session) { progress.add($0) }
 
+            // 3.4.0 takes one -depot with every id and one -manifest with every id, in the same order
+            // (a repeated -depot is ignored: "Argument #7 -depot was not used.").
             #expect(fixture.args == [
-                "-app", "331160", "-depot", "331161", "-manifest", "11", "-depot", "331162", "-manifest", "12",
+                "-app", "331160", "-depot", "331161", "331162", "-manifest", "11", "12",
                 "-os", "windows", "-dir", target.path, "-username", "joao", "-remember-password",
             ])
             // The token was in DepotDownloader's store before it started (ADR 0004).
@@ -179,6 +191,21 @@ struct DepotDownloaderTests {
             let runs = try String(contentsOf: dir.appendingPathComponent("runs"), encoding: .utf8)
                 .split(separator: "\n").map { $0.split(separator: " ")[0] }
             #expect(runs == ["start", "end", "start", "end"])
+        }
+    }
+
+    /// Exit 0 without every depot done is not an install: seen for real when a depot was skipped.
+    @Test func missingDepotIsAFailure() async throws {
+        try await withAsyncScratchDirectory { dir in
+            let fixture = try Fixture(in: dir, mode: "partial")
+            do {
+                try await fixture.downloader.download(
+                    appID: 331160, depots: depots, into: dir.appendingPathComponent("G"), session: session) { _ in }
+                Issue.record("expected an error")
+            } catch let error as DepotDownloaderError {
+                guard case .failed(_, let output) = error else { return }
+                #expect(output.contains("331162"))
+            }
         }
     }
 
