@@ -24,9 +24,13 @@ private func makeFakeBinary(in dir: URL, store: URL, isolatedRoot: URL) throws -
         case "$(cat "$here/mode")" in
           ok)
             echo "Processing depot 331161"
+            echo "Downloading depot 331161 manifest"
+            echo "Processing depot 331162"
+            echo "Downloading depot 331162 manifest"
+            echo "Downloading depot 331161"
             printf '\\033]9;4;1;10\\007 50.00%% /g/a.dat\\n'
             echo "100.00% /g/b.dat"
-            echo "Processing depot 331162"
+            echo "Downloading depot 331162"
             echo " 50.00% /g/c.dat"
             echo "100.00% /g/d.dat"
             echo "Total downloaded: 4000 bytes"
@@ -37,6 +41,16 @@ private func makeFakeBinary(in dir: URL, store: URL, isolatedRoot: URL) throws -
             echo "Error: InitializeSteam failed"
             exit 1 ;;
           fail) echo "something broke"; exit 1 ;;
+          offline)
+            echo "Could not connect to Steam after 10 tries"
+            echo "Unable to get steam3 credentials."
+            echo "Error: InitializeSteam failed"
+            exit 1 ;;
+          slow)
+            echo "start $(date +%s%N)" >> "$here/runs"
+            /bin/sleep 0.4
+            echo "end $(date +%s%N)" >> "$here/runs"
+            exit 0 ;;
           sleep) exec /bin/sleep 30 ;;
         esac
 
@@ -78,11 +92,16 @@ private struct Fixture {
 struct DepotDownloaderTests {
     @Test func progressAcrossDepots() {
         var parser = DepotProgress(depots: depots)
+        // DepotDownloader 3.4.0 first fetches every manifest, then downloads depot by depot.
+        for line in ["Processing depot 331161", "Downloading depot 331161 manifest",
+                     "Processing depot 331162", "Downloading depot 331162 manifest"] {
+            #expect(parser.consume(line) == nil)
+        }
         // The first depot is 3/4 of the bytes, the second 1/4.
-        #expect(parser.consume("Processing depot 331161") == nil)
+        #expect(parser.consume("Downloading depot 331161") == nil)
         #expect(parser.consume("\u{1B}]9;4;1;10\u{07} 50.00% /g/a.dat") == 0.375)
         #expect(parser.consume("100.00% /g/b.dat") == 0.75)
-        #expect(parser.consume("Processing depot 331162") == nil)
+        #expect(parser.consume("Downloading depot 331162") == nil)
         #expect(parser.consume(" 50.00% /g/c.dat") == 0.875)
         #expect(parser.consume("100.00% /g/d.dat") == 1)
         #expect(parser.consume("Total downloaded: 4000 bytes") == nil)
@@ -90,7 +109,7 @@ struct DepotDownloaderTests {
 
     @Test func progressNeverGoesBack() {
         var parser = DepotProgress(depots: depots)
-        _ = parser.consume("Processing depot 331161")
+        _ = parser.consume("Downloading depot 331161")
         _ = parser.consume(" 80.00% /g/a.dat")
         // Validation of an existing file can report a lower figure; the bar does not move back.
         #expect(parser.consume(" 10.00% /g/b.dat") == nil)
@@ -126,6 +145,40 @@ struct DepotDownloaderTests {
                 try await fixture.downloader.download(
                     appID: 331160, depots: depots, into: dir.appendingPathComponent("G"), session: session) { _ in }
             }
+        }
+    }
+
+    /// No network is not a rejected token: the login stays, the error says what happened.
+    @Test func offlineIsNotALogout() async throws {
+        try await withAsyncScratchDirectory { dir in
+            let fixture = try Fixture(in: dir, mode: "offline")
+            do {
+                try await fixture.downloader.download(
+                    appID: 331160, depots: depots, into: dir.appendingPathComponent("G"), session: session) { _ in }
+                Issue.record("expected an error")
+            } catch let error as DepotDownloaderError {
+                guard case .failed(let status, let output) = error else { return }
+                #expect(status == 1)
+                #expect(output.contains("Could not connect to Steam"))
+            }
+        }
+    }
+
+    /// One DepotDownloader at a time: it rewrites its account store, which the next run's token write
+    /// must not race (ADR 0004).
+    @Test func downloadsDoNotOverlap() async throws {
+        try await withAsyncScratchDirectory { dir in
+            let fixture = try Fixture(in: dir, mode: "slow")
+            let downloader = fixture.downloader
+            async let first: Void = downloader.download(
+                appID: 1, depots: depots, into: dir.appendingPathComponent("G1"), session: session) { _ in }
+            async let second: Void = downloader.download(
+                appID: 2, depots: depots, into: dir.appendingPathComponent("G2"), session: session) { _ in }
+            _ = try await (first, second)
+
+            let runs = try String(contentsOf: dir.appendingPathComponent("runs"), encoding: .utf8)
+                .split(separator: "\n").map { $0.split(separator: " ")[0] }
+            #expect(runs == ["start", "end", "start", "end"])
         }
     }
 

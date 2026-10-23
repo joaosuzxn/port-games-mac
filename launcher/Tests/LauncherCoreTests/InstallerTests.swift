@@ -6,6 +6,9 @@ import Testing
 
 private actor FakeDownloader: DepotDownloaderProtocol {
     private(set) var calls: [(appID: UInt32, depots: [UInt32], dir: URL)] = []
+    private var active = 0
+    private(set) var maxActive = 0
+    var delay: Duration = .zero
     /// Fails the call with this number (1-based) after reporting half the progress.
     var failOnCall: Int?
     var writes = true
@@ -17,6 +20,8 @@ private actor FakeDownloader: DepotDownloaderProtocol {
         progress: @Sendable (Double) -> Void
     ) async throws {
         let call = await record(appID, depots.map(\.id), dir)
+        defer { Task { await self.finished() } }
+        try await Task.sleep(for: await delay)
         progress(0.5)
         if await failOnCall == call { throw URLError(.networkConnectionLost) }
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -26,8 +31,13 @@ private actor FakeDownloader: DepotDownloaderProtocol {
 
     private func record(_ appID: UInt32, _ depots: [UInt32], _ dir: URL) -> Int {
         calls.append((appID, depots, dir))
+        active += 1
+        maxActive = max(maxActive, active)
         return calls.count
     }
+
+    private func finished() { active -= 1 }
+    func setDelay(_ d: Duration) { delay = d }
 }
 
 private struct FakeVolumes: VolumeInspector {
@@ -160,6 +170,23 @@ struct InstallerTests {
             let calls = await downloader.calls
             #expect(calls.count == 2)
             #expect(calls[0].dir == calls[1].dir)
+        }
+    }
+
+    /// Installing the same game twice at once must not run two downloads into one folder.
+    @Test func sameGameInstallsOneAtATime() async throws {
+        try await withAsyncScratchDirectory { dir in
+            let paths = try makePaths(in: dir)
+            let downloader = FakeDownloader()
+            await downloader.setDelay(.milliseconds(200))
+            let installer = Installer(paths: paths, downloader: downloader, volumes: FakeVolumes())
+
+            async let first = installer.install(carros(), session: session, library: nil) { _ in }
+            async let second = installer.install(carros(), session: session, library: nil) { _ in }
+            _ = try await (first, second)
+
+            #expect(await downloader.calls.count == 2)
+            #expect(await downloader.maxActive == 1)
         }
     }
 
