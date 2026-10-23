@@ -46,17 +46,30 @@ private actor Calls {
     func stopped() { stops += 1 }
 }
 
+/// Whether "Wine" is up in the prefix: set by the first spawn, as a real wineserver would be.
+private final class WineUp: @unchecked Sendable {
+    private let lock = NSLock()
+    private var up = false
+    func set() { lock.withLock { up = true } }
+    var value: Bool { lock.withLock { up } }
+}
+
 private struct FakeRunner: WineRunning {
     let calls: Calls
     let exitCode: Int32
+    var gameSeconds = 0.1
+    var failGame = false
+    var wineUp: WineUp?
 
     func run(_ args: [String], env: [String: String], cwd: URL?) async throws -> Int32 { 0 }
 
     func spawn(_ args: [String], env: [String: String], cwd: URL?) async throws -> Process {
         await calls.spawned(.init(args: args, cwd: cwd?.path, steamAppID: env["SteamAppId"], prefix: env["WINEPREFIX"]))
+        wineUp?.set()
+        if failGame, args[0] != GameLauncher.steamStub { throw CocoaError(.fileNoSuchFile) }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", "sleep 0.1; exit \(exitCode)"]
+        process.arguments = ["-c", "sleep \(gameSeconds); exit \(exitCode)"]
         try process.run()
         return process
     }
@@ -84,7 +97,8 @@ private func installed(_ appID: UInt32, in paths: Paths, complete: Bool = true) 
 
 private func launcher(
     _ paths: Paths, steam: FakeSteam, calls: Calls, infos: [UInt32: AppInfo] = [:], exitCode: Int32 = 0,
-    prefixRunning: Bool = false, timeout: Duration = .seconds(2)
+    prefixRunning: Bool = false, timeout: Duration = .seconds(2), gameSeconds: Double = 0.1, failGame: Bool = false,
+    wineUp: WineUp? = nil
 ) -> GameLauncher {
     GameLauncher(
         paths: paths, engine: engine, steam: steam,
@@ -94,8 +108,10 @@ private func launcher(
             return paths.prefix(appID)
         },
         stageBridge: { _, _ in await calls.event("bridge") },
-        makeRunner: { _, _ in FakeRunner(calls: calls, exitCode: exitCode) },
-        isPrefixRunning: { _ in prefixRunning },
+        makeRunner: { _, _ in
+            FakeRunner(calls: calls, exitCode: exitCode, gameSeconds: gameSeconds, failGame: failGame, wineUp: wineUp)
+        },
+        isPrefixRunning: { _ in prefixRunning || wineUp?.value == true },
         loginTimeout: timeout, pollInterval: .milliseconds(10), steamStubDelay: .zero)
 }
 
@@ -111,7 +127,7 @@ struct GameLauncherTests {
 
             let game = try await launcher(paths, steam: FakeSteam(running: true, loginAfterChecks: 0), calls: calls)
                 .play(appID: 331160)
-            _ = await game.wait()
+            _ = try await game.wait()
 
             let spawns = await calls.spawns
             #expect(spawns.map(\.args) == [[#"C:\Program Files (x86)\Steam\steam.exe"#], [#"G:\Cars.exe"#]])
@@ -137,7 +153,7 @@ struct GameLauncherTests {
 
             let game = try await launcher(paths, steam: FakeSteam(running: true, loginAfterChecks: 0), calls: calls,
                 infos: [999: info]).play(appID: 999)
-            _ = await game.wait()
+            _ = try await game.wait()
 
             let last = try #require(await calls.spawns.last)
             #expect(last.args == [#"G:\bin\Game.exe"#, "-foo", "-bar"])
@@ -152,7 +168,7 @@ struct GameLauncherTests {
             let steam = FakeSteam(running: false, loginAfterChecks: 3)
 
             let game = try await launcher(paths, steam: steam, calls: Calls()).play(appID: 331160)
-            _ = await game.wait()
+            _ = try await game.wait()
 
             #expect(steam.openCount == 1)
         }
@@ -215,6 +231,64 @@ struct GameLauncherTests {
         }
     }
 
+    /// A game that cannot start leaves no Wine behind (else every later play is "already running").
+    @Test func failedStartStopsWine() async throws {
+        try await withAsyncScratchDirectory { dir in
+            let paths = try makePaths(in: dir)
+            _ = try installed(331160, in: paths)
+            let calls = Calls()
+            await #expect(throws: CocoaError.self) {
+                try await launcher(paths, steam: FakeSteam(running: true, loginAfterChecks: 0), calls: calls,
+                    failGame: true).play(appID: 331160)
+            }
+            #expect(await calls.stops == 1)
+        }
+    }
+
+    /// Two plays of one game at once (double click, CLI and app): the second must not prepare the prefix,
+    /// which would stop the first one's Wine.
+    @Test func secondPlayAtOnceIsAlreadyRunning() async throws {
+        try await withAsyncScratchDirectory { dir in
+            let paths = try makePaths(in: dir)
+            _ = try installed(331160, in: paths)
+            let calls = Calls()
+            let wineUp = WineUp()
+            // Steam takes a moment to log in, so both plays get past the first check together.
+            let slow = launcher(paths, steam: FakeSteam(running: false, loginAfterChecks: 10), calls: calls,
+                gameSeconds: 1, wineUp: wineUp)
+
+            let first = Task { try await slow.play(appID: 331160) }
+            let second = Task { try await slow.play(appID: 331160) }
+            let results = [await first.result, await second.result]
+
+            #expect(results.filter { if case .success = $0 { true } else { false } }.count == 1)
+            #expect(results.contains { if case .failure(let e) = $0 { (e as? LauncherError) == .alreadyRunning(331160) } else { false } })
+            #expect(await calls.events.filter { $0.hasPrefix("prefix") }.count == 1)
+        }
+    }
+
+    /// Cancelling whoever waits must not crash (reading the status of a running process raises) and
+    /// must not take the game down; several waiters all get the exit code.
+    @Test func waitIsCancellableAndSharable() async throws {
+        try await withAsyncScratchDirectory { dir in
+            let paths = try makePaths(in: dir)
+            _ = try installed(331160, in: paths)
+            let game = try await launcher(paths, steam: FakeSteam(running: true, loginAfterChecks: 0), calls: Calls(),
+                exitCode: 4, gameSeconds: 0.5).play(appID: 331160)
+
+            let cancelled = Task { try await game.wait() }
+            try await Task.sleep(for: .milliseconds(50))
+            cancelled.cancel()
+            await #expect(throws: CancellationError.self) { try await cancelled.value }
+
+            async let a = game.wait()
+            async let b = game.wait()
+            #expect(try await [a, b] == [4, 4])
+            // After the end, waiting again answers at once.
+            #expect(try await game.wait() == 4)
+        }
+    }
+
     @Test func waitReturnsTheGamesExitCodeAndStopStopsWine() async throws {
         try await withAsyncScratchDirectory { dir in
             let paths = try makePaths(in: dir)
@@ -224,7 +298,7 @@ struct GameLauncherTests {
             let game = try await launcher(paths, steam: FakeSteam(running: true, loginAfterChecks: 0), calls: calls,
                 exitCode: 3).play(appID: 331160)
 
-            #expect(await game.wait() == 3)
+            #expect(try await game.wait() == 3)
             try await game.stop()
             #expect(await calls.stops == 1)
         }
