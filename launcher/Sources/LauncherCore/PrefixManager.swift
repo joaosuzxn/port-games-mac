@@ -56,10 +56,14 @@ public struct PrefixManager: Sendable {
         if !FileManager.default.fileExists(atPath: prefix.appendingPathComponent("system.reg").path) {
             try FileManager.default.createDirectory(at: prefix, withIntermediateDirectories: true)
             let env = WineEnvironment.make(engine: engine, prefix: prefix, recipe: recipe)
-            let status = try await runner.run(["wineboot", "-u"], env: env, cwd: nil)
-            guard status == 0 else {
-                try? await runner.stop(timeout: .seconds(30))
-                throw PrefixError.creationFailed(appID: appID, status: status)
+            do {
+                let status = try await runner.run(["wineboot", "-u"], env: env, cwd: nil)
+                guard status == 0 else { throw PrefixError.creationFailed(appID: appID, status: status) }
+            } catch {
+                // wineboot's wineserver outlives it; it must be down before the lock is released (bug #11).
+                // Detached, so that a cancelled caller does not cancel the stop as well.
+                await Task.detached { try? await runner.stop(timeout: .seconds(30)) }.value
+                throw error
             }
         }
         // wineserver writes the registry back when it exits: it must be down before the files are edited.
