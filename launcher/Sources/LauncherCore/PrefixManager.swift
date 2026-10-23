@@ -48,7 +48,7 @@ public struct PrefixManager: Sendable {
     /// (bug #11: creating one while another Wine starts hangs).
     public func ensurePrefix(appID: UInt32, recipe: Recipe, gameDir: URL) async throws -> URL {
         try FileManager.default.createDirectory(at: paths.prefixes, withIntermediateDirectories: true)
-        let lock = try await CreationLock.acquire(paths.prefixes.appendingPathComponent(".create.lock"))
+        let lock = try await FileLock.acquire(paths.prefixes.appendingPathComponent(".create.lock"))
         defer { lock.release() }
 
         let prefix = paths.prefix(appID)
@@ -141,26 +141,4 @@ public struct PrefixManager: Sendable {
     private func isSymlink(_ url: URL) -> Bool {
         (try? FileManager.default.attributesOfItem(atPath: url.path)[.type] as? FileAttributeType) == .typeSymbolicLink
     }
-}
-
-/// An exclusive `flock` on a file, taken without blocking a thread: it polls until free.
-private struct CreationLock {
-    let fd: Int32
-
-    static func acquire(_ file: URL) async throws -> CreationLock {
-        let fd = open(file.path, O_RDWR | O_CREAT | O_CLOEXEC, 0o644)
-        guard fd >= 0 else { throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: file.path]) }
-        while flock(fd, LOCK_EX | LOCK_NB) != 0 {
-            do {
-                try await Task.sleep(for: .milliseconds(50))
-            } catch {
-                close(fd)
-                throw error
-            }
-        }
-        return CreationLock(fd: fd)
-    }
-
-    /// Closing the descriptor releases the lock.
-    func release() { close(fd) }
 }

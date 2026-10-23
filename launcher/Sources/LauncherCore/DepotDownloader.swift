@@ -13,8 +13,9 @@ public enum DepotDownloaderError: Error, LocalizedError, Equatable {
 }
 
 /// Overall progress from DepotDownloader's output: a `NN.NN% <file>` line each time a file completes,
-/// cumulative within the depot announced by the last `Processing depot <id>` line. Depots weigh by
-/// their size.
+/// cumulative within the depot announced by the last `Downloading depot <id>` line. (3.4.0 first prints
+/// `Processing depot <id>` and `Downloading depot <id> manifest` for every depot while it fetches the
+/// manifests, so those are not the download.) Depots weigh by their size.
 struct DepotProgress {
     private let order: [UInt32]
     private let weights: [UInt32: Double]
@@ -33,9 +34,8 @@ struct DepotProgress {
     /// The new overall fraction (0…1) when `line` moves it forward, else nil.
     mutating func consume(_ line: String) -> Double? {
         let text = Self.stripEscapes(line).trimmingCharacters(in: .whitespaces)
-        for prefix in ["Processing depot ", "Downloading depot "] where text.hasPrefix(prefix) {
-            let id = UInt32(text.dropFirst(prefix.count).prefix { $0.isNumber })
-            if let id, let index = order.firstIndex(of: id) { current = max(current, index) }
+        if let match = text.wholeMatch(of: #/Downloading depot (\d+)/#) {
+            if let id = UInt32(match.1), let index = order.firstIndex(of: id) { current = index }
             return nil
         }
         guard let percent = text.firstMatch(of: #/^(\d{1,3}(?:\.\d+)?)% /#).flatMap({ Double($0.1) }),
@@ -68,17 +68,19 @@ public struct DepotDownloader: DepotDownloaderProtocol {
         self.log = log
     }
 
-    /// Lines that mean Steam did not accept the token: a new QR login is needed.
-    static let authFailures = [
-        "Access token was rejected", "InitializeSteam failed", "Unable to get steam3 credentials",
-        "LogOn requires a username",
-    ]
+    /// Lines that mean the token itself is no good: a new QR login is needed. (`InitializeSteam failed`
+    /// and `Unable to get steam3 credentials` also follow a plain network failure, so they are not here.)
+    static let authFailures = ["Access token was rejected", "Enter account password for"]
 
     public func download(
         appID: UInt32, depots: [Depot], into dir: URL, session: SteamSession,
         progress: @Sendable (Double) -> Void
     ) async throws {
         try Task.checkCancellation()
+        // One DepotDownloader at a time, from writing its store to its exit: it rewrites the store
+        // itself, so a token write must never land while another one runs (ADR 0004).
+        let runLock = try await FileLock.acquire(binary.deletingLastPathComponent().appendingPathComponent(".run.lock"))
+        defer { runLock.release() }
         try accountStore.setToken(session.refreshToken, account: session.accountName)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
 
@@ -101,6 +103,7 @@ public struct DepotDownloader: DepotDownloaderProtocol {
         defer { try? logHandle?.close() }
         logHandle?.write(Data("[\(Date().ISO8601Format())] DepotDownloader \(arguments.joined(separator: " "))\n".utf8))
 
+        let exited = Self.exit(of: process)
         try process.run()
         var parser = DepotProgress(depots: depots)
         var tail: [String] = []
@@ -114,7 +117,7 @@ public struct DepotDownloader: DepotDownloaderProtocol {
         } onCancel: {
             if process.isRunning { process.terminate() }
         }
-        process.waitUntilExit()
+        await exited()
         try Task.checkCancellation()
 
         guard process.terminationStatus == 0, process.terminationReason == .exit else {
@@ -123,6 +126,14 @@ public struct DepotDownloader: DepotDownloaderProtocol {
             }
             throw DepotDownloaderError.failed(status: process.terminationStatus, output: tail.joined(separator: "\n"))
         }
+    }
+
+    /// Waits for `process` to end without blocking a thread (`waitUntilExit()` on a Swift concurrency
+    /// thread sometimes never returned while other processes started). Call before `run()`.
+    static func exit(of process: Process) -> @Sendable () async -> Void {
+        let (stream, continuation) = AsyncStream<Void>.makeStream()
+        process.terminationHandler = { _ in continuation.finish() }
+        return { for await _ in stream {} }
     }
 
     private func openLog() -> FileHandle? {
@@ -154,7 +165,7 @@ public enum DepotDownloaderTool {
         let binary = folder.appendingPathComponent("DepotDownloader")
         if !fileManager.isExecutableFile(atPath: binary.path) {
             let zip = try await ArtifactStore.ensure(artifact, cache: paths.cache, localSources: [], download: download)
-            try extract(zip, binaryTo: binary)
+            try await extract(zip, binaryTo: binary)
         }
 
         // Remembered after the first run, which is when .NET creates the store folder.
@@ -163,20 +174,20 @@ public enum DepotDownloaderTool {
             return DepotDownloader(binary: binary, accountStore: DepotDownloaderAccountStore(file: URL(fileURLWithPath: path)), log: log)
         }
         let before = DepotDownloaderAccountStore.assemblyFolders(under: isolatedStorage)
-        try runOnce(binary, ["-V"])
+        try await runOnce(binary, ["-V"])
         let store = try DepotDownloaderAccountStore.locate(under: isolatedStorage, before: before)
         try Data(store.file.path.utf8).write(to: remembered, options: .atomic)
         return DepotDownloader(binary: binary, accountStore: store, log: log)
     }
 
     /// Unzips into a scratch folder next to `binary` and moves the executable into place.
-    private static func extract(_ zip: URL, binaryTo binary: URL) throws {
+    private static func extract(_ zip: URL, binaryTo binary: URL) async throws {
         let fileManager = FileManager.default
         let folder = binary.deletingLastPathComponent()
         try fileManager.createDirectory(at: folder, withIntermediateDirectories: true)
         let scratch = folder.appendingPathComponent(".extract-\(UUID().uuidString)", isDirectory: true)
         defer { try? fileManager.removeItem(at: scratch) }
-        try runOnce(URL(fileURLWithPath: "/usr/bin/ditto"), ["-x", "-k", zip.path, scratch.path])
+        try await runOnce(URL(fileURLWithPath: "/usr/bin/ditto"), ["-x", "-k", zip.path, scratch.path])
         guard let walker = fileManager.enumerator(at: scratch, includingPropertiesForKeys: nil),
             let found = walker.compactMap({ $0 as? URL }).first(where: { $0.lastPathComponent == "DepotDownloader" })
         else { throw DepotDownloaderError.failed(status: -1, output: "\(zip.lastPathComponent) has no DepotDownloader") }
@@ -185,7 +196,7 @@ public enum DepotDownloaderTool {
         try fileManager.moveItem(at: found, to: binary)
     }
 
-    private static func runOnce(_ executable: URL, _ arguments: [String]) throws {
+    private static func runOnce(_ executable: URL, _ arguments: [String]) async throws {
         let process = Process()
         process.executableURL = executable
         process.arguments = arguments
@@ -193,8 +204,9 @@ public enum DepotDownloaderTool {
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         process.standardInput = FileHandle.nullDevice
+        let exited = DepotDownloader.exit(of: process)
         try process.run()
-        process.waitUntilExit()
+        await exited()
         guard process.terminationStatus == 0 else {
             throw DepotDownloaderError.failed(
                 status: process.terminationStatus, output: "\(executable.lastPathComponent) \(arguments.joined(separator: " "))")

@@ -128,6 +128,11 @@ public struct Installer: Sendable {
     ) async throws -> GameState {
         let depots = Self.depots(for: info, language: language)
         guard !depots.isEmpty else { throw InstallerError.noWindowsDepots(info.appID) }
+        // One install or update of a game at a time (also across processes): two downloads into one
+        // folder would overwrite each other, and the last to end would decide the state.
+        try FileManager.default.createDirectory(at: paths.state, withIntermediateDirectories: true)
+        let lock = try await FileLock.acquire(paths.state.appendingPathComponent("\(info.appID).lock"))
+        defer { lock.release() }
         try checkDisk(for: depots, at: dir)
 
         var state = GameState(
