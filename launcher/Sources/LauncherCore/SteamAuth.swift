@@ -163,23 +163,27 @@ public actor SteamAuth {
         }
     }
 
-    /// The saved session with a fresh access token, or `nil` when there is none or Steam no longer
-    /// accepts it (then it is forgotten, and the QR must be shown again). Network errors are thrown and
-    /// keep the session: being offline is not a logout.
+    /// The saved session with a valid access token, or `nil` when there is none or Steam refuses to
+    /// renew it (the QR must be shown again; the saved session is only deleted once its refresh token has
+    /// expired). Network errors are thrown and keep the session: being offline is not a logout.
     public func validSession() async throws -> SteamSession? {
         guard var session = try store.load() else { return nil }
         if let expiry = JWT.expiry(session.refreshToken), expiry <= Date() {
             try store.clear()
             return nil
         }
+        // The access token from the login lasts about a day; renew only when it is about to end.
+        if let expiry = JWT.expiry(session.accessToken), expiry > Date().addingTimeInterval(5 * 60) {
+            return session
+        }
         let reply = try await api.post(
             "IAuthenticationService/GenerateAccessTokenForApp",
             ["refresh_token": session.refreshToken, "steamid": String(session.steamID)])
-        // Forget the login only when Steam says the token is no good; anything else (busy, down, odd
-        // answer) is thrown and the session stays.
+        // A refusal means "log in again", but nothing is deleted: Steam refused a fresh, valid SteamClient
+        // refresh token here (EResult 63, then 15) on 2026-10-23. A new login replaces the session.
+        // Anything else (busy, down, odd answer) is thrown.
         let eresult = reply.eresult ?? 1
-        if reply.status == 401 || reply.status == 403 || Self.revokedEResults.contains(eresult) {
-            try store.clear()
+        if reply.status == 401 || reply.status == 403 || Self.refusedEResults.contains(eresult) {
             return nil
         }
         guard reply.status == 200, eresult == 1 else { throw SteamAuthError.unavailable(code: eresult == 1 ? reply.status : eresult) }
@@ -193,9 +197,9 @@ public actor SteamAuth {
         return session
     }
 
-    /// EResults that mean the refresh token is dead: InvalidPassword, InvalidParam, AccessDenied,
-    /// Revoked, Expired.
-    static let revokedEResults: Set<Int> = [5, 8, 15, 26, 27]
+    /// EResults with which Steam refuses to renew: InvalidPassword, InvalidParam, AccessDenied, Revoked,
+    /// Expired, AccountLogonDenied.
+    static let refusedEResults: Set<Int> = [5, 8, 15, 26, 27, 63]
 
     /// Steam sends 64-bit IDs as strings (and some as numbers).
     private static func string(_ value: Any?) -> String? {
