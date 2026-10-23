@@ -30,6 +30,14 @@ public struct Depot: Equatable, Sendable {
     public var publicManifest: UInt64?
     /// Bytes on disk once downloaded, when Steam says.
     public var maxSize: UInt64?
+    /// Set on language packs (`english`, `french`, …): download only the one wanted.
+    public var language: String? = nil
+    /// The app this depot really belongs to (`depotfromapp`), e.g. a redistributable.
+    public var fromApp: UInt32? = nil
+    /// Installed once and shared between games (`sharedinstall`); no manifest of its own here.
+    public var shared: Bool = false
+    /// The DLC this depot is content of (`dlcappid`); not part of the base game.
+    public var dlcAppID: UInt32? = nil
 }
 
 public enum AppInfoError: Error, LocalizedError, Equatable {
@@ -120,7 +128,11 @@ extension AppInfo {
                 id: id, oslist: Self.list(depot["config"]?["oslist"]?.string),
                 osarch: depot["config"]?["osarch"]?.string,
                 publicManifest: manifest?["gid"]?.number ?? manifest?.number,
-                maxSize: depot["maxsize"]?.number ?? manifest?["size"]?.number)
+                maxSize: depot["maxsize"]?.number ?? manifest?["size"]?.number,
+                language: depot["config"]?["language"]?.string.flatMap { $0.isEmpty ? nil : $0.lowercased() },
+                fromApp: depot["depotfromapp"]?.number.flatMap { UInt32(exactly: $0) },
+                shared: (depot["sharedinstall"]?.number ?? 0) != 0,
+                dlcAppID: depot["dlcappid"]?.number.flatMap { UInt32(exactly: $0) })
         }.sorted { $0.id < $1.id }
     }
 
