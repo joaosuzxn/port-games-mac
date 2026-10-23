@@ -1,9 +1,9 @@
 # Backlog — Port do Carros
 
-> Gerado por `backlog board` em 2026-10-22. Não editar à mão: edite os itens em `itens/` e gere de novo.
+> Gerado por `backlog board` em 2026-10-23. Não editar à mão: edite os itens em `itens/` e gere de novo.
 
 ## Agora
-- (vazio)
+- #14 · bug · P1 · app, infra · Login Steam: renovar o access token sem novo QR (Web API recusa token SteamClient: EResult 63/15) · há 0 dias
 
 ## Próximo ciclo
 - #3 · feature · P2 · app, wine, infra · Generalizar: transformar vários jogos Windows da Steam em .app no Mac · há 1 dias
