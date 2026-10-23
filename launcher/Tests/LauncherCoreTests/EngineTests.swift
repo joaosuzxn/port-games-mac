@@ -10,7 +10,7 @@ private struct FixtureError: Error, CustomStringConvertible {
 }
 
 /// Builds `target` with the system tar, like `tools/builder/test_bundle.py` does.
-private func makeTarXZ(from source: URL, root: String, to target: URL) throws {
+func makeTarXZ(from source: URL, root: String, to target: URL) throws {
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
     process.arguments = ["-cJf", target.path, "-C", source.path, root]
@@ -21,7 +21,7 @@ private func makeTarXZ(from source: URL, root: String, to target: URL) throws {
     }
 }
 
-private func write(_ text: String, to url: URL, executable: Bool = false) throws {
+fileprivate func write(_ text: String, to url: URL, executable: Bool = false) throws {
     try FileManager.default.createDirectory(
         at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
     try Data(text.utf8).write(to: url)
@@ -32,7 +32,7 @@ private func write(_ text: String, to url: URL, executable: Bool = false) throws
 
 /// A fake Sikarugir template: one root `Template-1.0.24.app/` with frameworks (one symlink),
 /// renderers, Vulkan driver manifests and a launcher that the engine must NOT pick up.
-private func makeTemplateTar(
+func makeTemplateTar(
     in dir: URL, name: String = "template.tar.xz", withVulkan: Bool = true
 ) throws -> URL {
     let source = dir.appendingPathComponent("template-src-\(UUID().uuidString)", isDirectory: true)
@@ -59,7 +59,7 @@ private func makeTemplateTar(
 }
 
 /// A fake Wine engine: one root `wswine.bundle/` with `bin/wine`, `bin/wineserver` and `lib/`.
-private func makeEngineTar(in dir: URL, name: String = "engine.tar.xz", withWine: Bool = true) throws -> URL {
+func makeEngineTar(in dir: URL, name: String = "engine.tar.xz", withWine: Bool = true) throws -> URL {
     let source = dir.appendingPathComponent("engine-src-\(UUID().uuidString)", isDirectory: true)
     let bundle = source.appendingPathComponent("wswine.bundle", isDirectory: true)
     if withWine {

@@ -238,6 +238,36 @@ struct DepotDownloaderTests {
         }
     }
 
+    /// Two first installs at once: one extraction and one store, not "storeNotFound" from seeing two.
+    @Test func concurrentToolInstallsAgree() async throws {
+        try await withAsyncScratchDirectory { dir in
+            let paths = Paths(root: dir.appendingPathComponent("PortGames"), cache: dir.appendingPathComponent("Cache"))
+            let isolated = dir.appendingPathComponent("IsolatedStorage", isDirectory: true)
+            let source = dir.appendingPathComponent("zip-src", isDirectory: true)
+            try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+            _ = try makeFakeBinary(in: source, store: dir.appendingPathComponent("unused"), isolatedRoot: isolated)
+            let zip = dir.appendingPathComponent("dd.zip")
+            let ditto = Process()
+            ditto.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
+            ditto.arguments = ["-c", "-k", source.path, zip.path]
+            try ditto.run()
+            ditto.waitUntilExit()
+            let artifact = Artifact(file: "dd.zip", sha256: try ArtifactStore.sha256Hex(of: zip), url: URL(string: "https://example.invalid/dd.zip"))
+
+            let stores = try await withThrowingTaskGroup(of: URL.self) { group in
+                for _ in 0..<3 {
+                    group.addTask {
+                        try await DepotDownloaderTool.install(paths: paths, artifact: artifact, isolatedStorage: isolated) { _, to in
+                            try FileManager.default.copyItem(at: zip, to: to)
+                        }.accountStore.file
+                    }
+                }
+                return try await group.reduce(into: [URL]()) { $0.append($1) }
+            }
+            #expect(Set(stores).count == 1)
+        }
+    }
+
     @Test func toolInstallsFromTheZipAndFindsItsStore() async throws {
         try await withAsyncScratchDirectory { dir in
             let paths = Paths(root: dir.appendingPathComponent("PortGames"), cache: dir.appendingPathComponent("Cache"))
