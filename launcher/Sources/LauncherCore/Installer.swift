@@ -33,6 +33,8 @@ public enum InstallerError: Error, LocalizedError, Equatable {
     case notEnoughSpace(needed: UInt64, free: UInt64)
     case noWindowsDepots(UInt32)
     case notInstalled(UInt32)
+    /// The game is running: its files are not touched until it is stopped.
+    case gameRunning(UInt32)
     /// The recorded game folder is not one the launcher made (`…/<appID>`); it was not deleted.
     case unexpectedInstallDir(String)
 
@@ -45,6 +47,7 @@ public enum InstallerError: Error, LocalizedError, Equatable {
                 Self.gigabytes(needed - min(free, needed)), Self.gigabytes(needed), Self.gigabytes(free))
         case .noWindowsDepots(let appID): return "app \(appID) has no Windows content to download"
         case .notInstalled(let appID): return "app \(appID) is not installed"
+        case .gameRunning(let appID): return "app \(appID) is running; stop it first (launcherctl stop \(appID))"
         case .unexpectedInstallDir(let path): return "\(path) is not a game folder made by the launcher; nothing was deleted"
         }
     }
@@ -59,6 +62,7 @@ public struct Installer: Sendable {
     private let downloader: DepotDownloaderProtocol
     private let volumes: VolumeInspector
     private let language: String
+    private let isGameRunning: @Sendable (UInt32) -> Bool
 
     static let refusedFileSystems: Set<String> = ["exfat", "msdos", "fat", "fat16", "fat32", "vfat", "ntfs"]
 
@@ -66,10 +70,25 @@ public struct Installer: Sendable {
         paths: Paths, downloader: DepotDownloaderProtocol, volumes: VolumeInspector = SystemVolumeInspector(),
         language: String = "english"
     ) {
+        self.init(paths: paths, downloader: downloader, volumes: volumes, language: language) { appID in
+            WineServerLock.holder(prefix: paths.prefix(appID), serverRoot: WineServerLock.defaultRoot) != nil
+        }
+    }
+
+    init(
+        paths: Paths, downloader: DepotDownloaderProtocol, volumes: VolumeInspector = SystemVolumeInspector(),
+        language: String = "english", isGameRunning: @escaping @Sendable (UInt32) -> Bool
+    ) {
         self.paths = paths
         self.downloader = downloader
         self.volumes = volumes
         self.language = language
+        self.isGameRunning = isGameRunning
+    }
+
+    /// The per-game lock shared by install, update, uninstall and play (which only tries it).
+    static func lockFile(_ appID: UInt32, paths: Paths) -> URL {
+        paths.state.appendingPathComponent("\(appID).lock")
     }
 
     /// Downloads the game into `library/<appID>` (or the default games folder). The state is saved as
@@ -91,9 +110,14 @@ public struct Installer: Sendable {
             info, session: session, into: URL(fileURLWithPath: state.installDir, isDirectory: true), progress: progress)
     }
 
-    /// Deletes the game files and the install state. The prefix and the local recipe stay.
-    public func uninstall(_ appID: UInt32) throws {
+    /// Deletes the game files and the install state. The prefix and the local recipe stay. Waits for a
+    /// download of the game to end; refuses while the game runs.
+    public func uninstall(_ appID: UInt32) async throws {
         let fileManager = FileManager.default
+        try fileManager.createDirectory(at: paths.state, withIntermediateDirectories: true)
+        let lock = try await FileLock.acquire(Self.lockFile(appID, paths: paths))
+        defer { lock.release() }
+        guard !isGameRunning(appID) else { throw InstallerError.gameRunning(appID) }
         if let state = try GameStateStore.load(appID, paths: paths) {
             let dir = URL(fileURLWithPath: state.installDir, isDirectory: true)
             // Only a folder the launcher made: `<library>/<appID>`.
@@ -131,8 +155,10 @@ public struct Installer: Sendable {
         // One install or update of a game at a time (also across processes): two downloads into one
         // folder would overwrite each other, and the last to end would decide the state.
         try FileManager.default.createDirectory(at: paths.state, withIntermediateDirectories: true)
-        let lock = try await FileLock.acquire(paths.state.appendingPathComponent("\(info.appID).lock"))
+        let lock = try await FileLock.acquire(Self.lockFile(info.appID, paths: paths))
         defer { lock.release() }
+        // Never write over the files of a running game.
+        guard !isGameRunning(info.appID) else { throw InstallerError.gameRunning(info.appID) }
         try checkDisk(for: depots, at: dir)
 
         var state = GameState(

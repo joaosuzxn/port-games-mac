@@ -50,19 +50,22 @@ func installer(_ appID: UInt32) async throws -> Installer {
     return Installer(paths: paths, downloader: tool)
 }
 
-/// Stops the game's Wine when launcherctl is interrupted (Ctrl-C), instead of leaving it running.
-func stopOnInterrupt(_ game: RunningGame) -> DispatchSourceSignal {
-    signal(SIGINT, SIG_IGN)
-    let source = DispatchSource.makeSignalSource(signal: SIGINT)
-    source.setEventHandler {
-        say("\nstopping…")
-        Task {
-            try? await game.stop()
-            exit(130)
+/// Stops the game's Wine when launcherctl is interrupted (Ctrl-C), its Terminal tab is closed (SIGHUP)
+/// or it is told to quit (SIGTERM), instead of leaving the game running.
+func stopOnInterrupt(_ game: RunningGame) -> [DispatchSourceSignal] {
+    [SIGINT, SIGHUP, SIGTERM].map { number in
+        signal(number, SIG_IGN)
+        let source = DispatchSource.makeSignalSource(signal: number)
+        source.setEventHandler {
+            say("\nstopping…")
+            Task {
+                try? await game.stop()
+                exit(128 + number)
+            }
         }
+        source.resume()
+        return source
     }
-    source.resume()
-    return source
 }
 
 let command: Command
@@ -122,7 +125,7 @@ do {
         say("Updated \(info.name) to build \(state.buildID)")
 
     case .uninstall(let appID):
-        try Installer(paths: paths, downloader: DepotDownloader(
+        try await Installer(paths: paths, downloader: DepotDownloader(
             binary: URL(fileURLWithPath: "/nonexistent"), accountStore: DepotDownloaderAccountStore(file: URL(fileURLWithPath: "/nonexistent"))))
             .uninstall(appID)
         say("Uninstalled app \(appID); its saves (\(paths.prefix(appID).path)) and recipe stay.")
@@ -132,11 +135,24 @@ do {
         let engine = try await EngineArtifacts.ensureEngine(paths: paths)
         let game = try await GameLauncher(paths: paths, engine: engine, appInfoURL: steamAppInfo).play(appID: appID)
         say("Playing app \(appID) (Ctrl-C stops it). Log: \(paths.logs.appendingPathComponent("\(appID).log").path)")
-        let interrupt = stopOnInterrupt(game)
+        let interrupts = stopOnInterrupt(game)
         let status = try await game.wait()
-        interrupt.cancel()
+        interrupts.forEach { $0.cancel() }
         try await game.stop()
         say("The game exited with code \(status).")
+
+    case .stop(let appID):
+        guard let engine = EngineInstaller.installed(id: EngineArtifacts.engineID, paths: paths) else {
+            say("app \(appID) is not running")
+            break
+        }
+        let launcher = GameLauncher(paths: paths, engine: engine, appInfoURL: steamAppInfo)
+        guard launcher.isRunning(appID: appID) else {
+            say("app \(appID) is not running")
+            break
+        }
+        try await launcher.stop(appID: appID)
+        say("Stopped app \(appID).")
 
     case .status(let appID):
         if let state = try GameStateStore.load(appID, paths: paths) {

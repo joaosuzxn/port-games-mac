@@ -7,13 +7,17 @@ public enum LauncherError: Error, LocalizedError, Equatable {
     /// The Mac's Steam did not open or log in in time; games would stop at "Steam must be running".
     case steamNotLoggedIn
     case alreadyRunning(UInt32)
+    /// A download or update of the game is in progress.
+    case installing(UInt32)
 
     public var errorDescription: String? {
         switch self {
         case .notInstalled(let appID): return "app \(appID) is not installed (or its download did not finish)"
         case .noExecutable(let appID): return "no Windows executable is known for app \(appID); set one with the recipe"
         case .steamNotLoggedIn: return "Steam for Mac must be open and logged in to play; log in to Steam and try again"
-        case .alreadyRunning(let appID): return "app \(appID) is already running"
+        case .alreadyRunning(let appID):
+            return "app \(appID) is already running (if it is stuck, stop it with `launcherctl stop \(appID)`)"
+        case .installing(let appID): return "app \(appID) is being downloaded or updated; wait for it to finish"
         }
     }
 }
@@ -108,13 +112,18 @@ public struct GameLauncher: Sendable {
         let (executable, arguments) = try launchCommand(appID: appID, recipe: recipe)
         let prefix = paths.prefix(appID)
         guard !isPrefixRunning(prefix) else { throw LauncherError.alreadyRunning(appID) }
-
         // From here until the game's Wine is up, one play of this game at a time (also across processes):
         // a second one would prepare the prefix and so stop the first one's Wine.
         try FileManager.default.createDirectory(at: paths.prefixes, withIntermediateDirectories: true)
         let lock = try await FileLock.acquire(paths.prefixes.appendingPathComponent(".\(appID).play.lock"))
         defer { lock.release() }
         guard !isPrefixRunning(prefix) else { throw LauncherError.alreadyRunning(appID) }
+        // Not while it downloads; holding the install lock also keeps a download from starting meanwhile.
+        try FileManager.default.createDirectory(at: paths.state, withIntermediateDirectories: true)
+        guard let installLock = try FileLock.tryAcquire(Installer.lockFile(appID, paths: paths)) else {
+            throw LauncherError.installing(appID)
+        }
+        defer { installLock.release() }
 
         try await ensureSteam()
         let ready = try await preparePrefix(appID, recipe, gameDir)
@@ -137,6 +146,17 @@ public struct GameLauncher: Sendable {
             await Task.detached { try? await runner.stop(timeout: .seconds(30)) }.value
             throw error
         }
+    }
+
+    /// Whether the game's Wine is up (including a game left running by a launcher that has quit).
+    public func isRunning(appID: UInt32) -> Bool {
+        isPrefixRunning(paths.prefix(appID))
+    }
+
+    /// Stops every Wine process of the game's prefix, e.g. one left running by a launcher that has quit.
+    public func stop(appID: UInt32) async throws {
+        try await makeRunner(paths.prefix(appID), paths.logs.appendingPathComponent("\(appID).log"))
+            .stop(timeout: .seconds(30))
     }
 
     /// The recipe's executable (with its arguments), else Steam's first Windows launch option.

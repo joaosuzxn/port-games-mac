@@ -9,6 +9,8 @@ public enum Command: Equatable, Sendable {
     case update(UInt32)
     case uninstall(UInt32)
     case play(UInt32)
+    /// Stops the game's Wine (a game left running).
+    case stop(UInt32)
     case status(UInt32)
     /// Test mode: edits the game's local recipe, starting from the effective one.
     case recipe(appID: UInt32, edits: RecipeEdits)
@@ -61,6 +63,7 @@ public enum CLI {
           launcherctl update <appid>                download the current build over the installed one
           launcherctl uninstall <appid>             delete the game files (saves and recipe stay)
           launcherctl play <appid>                  open the game (Steam for Mac must be logged in)
+          launcherctl stop <appid>                  stop a game left running
           launcherctl status <appid>                install state and effective recipe
           launcherctl recipe <appid> [--renderer wined3d|d9vk|dxvk|d3dmetal] [--emulate-modeset on|off]
                                      [--env KEY=VALUE]... [--dll NAME=VALUE]... [--show]
@@ -74,13 +77,14 @@ public enum CLI {
         case "login", "logout", "library":
             guard rest.isEmpty else { throw CLIError(message: "\(command) takes no arguments") }
             return command == "login" ? .login : command == "logout" ? .logout : .library
-        case "update", "uninstall", "play", "status":
+        case "update", "uninstall", "play", "stop", "status":
             let appID = try takeAppID(&rest, command)
             guard rest.isEmpty else { throw CLIError(message: "unexpected arguments: \(rest.joined(separator: " "))") }
             switch command {
             case "update": return .update(appID)
             case "uninstall": return .uninstall(appID)
             case "play": return .play(appID)
+            case "stop": return .stop(appID)
             default: return .status(appID)
             }
         case "install":
