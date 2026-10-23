@@ -1,0 +1,36 @@
+{
+  "app_id": 331160,
+  "renderer": "wined3d",
+  "emulate_modeset": true,
+  "cd_label": "DISC2",
+  "executable": "Cars.exe",
+  "arguments": [],
+  "environment": {},
+  "dll_overrides": {},
+  "registry": [
+    {
+      "hive": "system",
+      "key": "Software\\Wine\\Drives",
+      "values": {
+        "d:": "cdrom"
+      }
+    },
+    {
+      "hive": "system",
+      "key": "System\\ControlSet001\\Services\\winebus",
+      "values": {
+        "Enable SDL": 1,
+        "Map Controllers": 1
+      }
+    },
+    {
+      "hive": "user",
+      "key": "Software\\THQ\\Cars\\Settings\\Display",
+      "values": {
+        "Resolution": 14,
+        "MultiSampleType": 4,
+        "FullscreenEffects": 1
+      }
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "app_id": 480,
+  "renderer": "wined3d",
+  "emulate_modeset": true,
+  "cd_label": null,
+  "executable": "SteamworksExample.exe",
+  "arguments": [],
+  "environment": {},
+  "dll_overrides": {},
+  "registry": []
+}

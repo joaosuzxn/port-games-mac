@@ -9,7 +9,10 @@ let package = Package(
         .executable(name: "launcherctl", targets: ["launcherctl"]),
     ],
     targets: [
-        .target(name: "LauncherCore"),
+        .target(
+            name: "LauncherCore",
+            resources: [.copy("Resources/recipes")]
+        ),
         .executableTarget(name: "launcherctl", dependencies: ["LauncherCore"]),
         .testTarget(name: "LauncherCoreTests", dependencies: ["LauncherCore"]),
     ]
