@@ -28,7 +28,9 @@ let showProgress: @Sendable (Double) -> Void = { value in
     say(String(format: "\rdownloading… %5.1f%%", value * 100), terminator: value >= 1 ? "\n" : "")
 }
 
-let auth = SteamAuth(http: URLSessionHTTPClient(), store: KeychainTokenStore())
+/// Every Steam Web API call is logged (status, EResult, no secrets) to diagnose login problems.
+let steamHTTP = LoggingHTTPClient(base: URLSessionHTTPClient(), log: paths.logs.appendingPathComponent("steam-api.log"))
+let auth = SteamAuth(http: steamHTTP, store: KeychainTokenStore())
 
 func session() async throws -> SteamSession {
     guard let session = try await auth.validSession() else { fail("not logged in to Steam: run `launcherctl login`") }
@@ -93,7 +95,7 @@ do {
         say("Steam login forgotten.")
 
     case .library:
-        let games = try await Library(http: URLSessionHTTPClient(), paths: paths, appInfoURL: steamAppInfo)
+        let games = try await Library(http: steamHTTP, paths: paths, appInfoURL: steamAppInfo)
             .games(session: try await session())
         for game in games {
             let status: String

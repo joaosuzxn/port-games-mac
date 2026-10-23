@@ -63,3 +63,48 @@ struct SteamWebAPI {
             response: json?["response"] as? [String: Any] ?? [:])
     }
 }
+
+/// Wraps a client and appends one line per Steam call to a log: method, path, HTTP status, EResult,
+/// `x-error_message`, the keys of the `response` object and the claims of any token in it (subject,
+/// audience, expiry). Never a query, a body or a token: they hold secrets.
+public struct LoggingHTTPClient: HTTPClient {
+    let base: HTTPClient
+    let log: URL
+
+    public init(base: HTTPClient, log: URL) {
+        self.base = base
+        self.log = log
+    }
+
+    public func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        let line = "[\(Date().ISO8601Format())] \(request.httpMethod ?? "GET") \(request.url?.path ?? "?")"
+        do {
+            let (data, response) = try await base.send(request)
+            var parts = [line, "→ HTTP \(response.statusCode)"]
+            if let eresult = response.value(forHTTPHeaderField: "x-eresult") { parts.append("eresult \(eresult)") }
+            if let message = response.value(forHTTPHeaderField: "x-error_message") { parts.append("message \"\(message)\"") }
+            let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            if let fields = json?["response"] as? [String: Any] {
+                parts.append("keys \(fields.keys.sorted())")
+                for key in fields.keys.sorted() where key.hasSuffix("token") {
+                    guard let token = fields[key] as? String, let claims = JWT.claims(token) else { continue }
+                    let aud = (claims["aud"] as? [String])?.joined(separator: ",") ?? "\(claims["aud"] ?? "-")"
+                    parts.append("\(key){sub=\(claims["sub"] ?? "-") aud=\(aud) exp=\(claims["exp"] ?? "-")}")
+                }
+            }
+            append(parts.joined(separator: " "))
+            return (data, response)
+        } catch {
+            append(line + " → error \(error)")
+            throw error
+        }
+    }
+
+    private func append(_ line: String) {
+        try? FileManager.default.createDirectory(at: log.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let fd = open(log.path, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0o600)
+        guard fd >= 0 else { return }
+        let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+        handle.write(Data((line + "\n").utf8))
+    }
+}
