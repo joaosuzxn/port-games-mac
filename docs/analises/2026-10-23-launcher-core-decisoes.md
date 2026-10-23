@@ -23,8 +23,9 @@ e desinstalar + instalar mantendo saves.
 
 **Prefixo**
 - Drives `D:`/`G:` são links absolutos para a pasta do jogo (que pode estar noutro disco).
-- Prefixo "criado" = tem `system.reg`; o Wine é parado antes de editar o registro; criação serializada por lock só
-  quando cria; não cria com outro jogo rodando (spec, bug #11); `wineboot` com prazo de 180 s.
+- Prefixo "criado" = tem `system.reg`; o Wine é parado antes de editar o registro; não cria com outro jogo rodando
+  (spec, bug #11); `wineboot` com prazo de 180 s, que para o Wine mesmo se ele ignorar o cancelamento; o `play`
+  segura o lock de início do preparo do prefixo até o jogo subir (nenhum Wine inicia durante uma criação).
 - Nunca apaga o que não é nosso: drive que é pasta real → erro; pasta de usuário fora do prefixo → erro.
 
 **Ponte com a Steam**
@@ -70,9 +71,11 @@ para o app #9); corrida de reentrância entre `validSession` e `waitForApproval`
 pasta antiga órfã; guarda do desinstalar olha só o último componente do caminho; `account-store.path` dentro de
 `tools/` se perde com a pasta; token renovado pelo DepotDownloader deixa a cópia do Keychain velha (#14); conta sem
 jogos dá erro em vez de grade vazia; QR sem margem branca, intervalo sem limite, um erro de rede aborta o login;
-`open -ga Steam` sem checar saída; `LaunchEntry` sem `type`/`workingdir` (antes do 3º jogo); argumentos com aspas.
+`open -ga Steam` sem checar saída; `logout` engole erro de leitura do Keychain e não pega o lock do DepotDownloader;
+instalar/desinstalar esperam em silêncio enquanto um `play` segura o lock; `LaunchEntry` sem `type`/`workingdir` (antes do 3º jogo); argumentos com aspas.
 
-**Wine e prefixo:** nome da pasta do wineserver para `dev_t` com bit 31; `wineboot` que morre depois do
+**Wine e prefixo:** outros apps com Wine (CrossOver, Carros.app) não são detectados antes de criar um prefixo — só o
+prazo protege (#11); nome da pasta do wineserver para `dev_t` com bit 31; `wineboot` que morre depois do
 `system.reg` deixa prefixo "criado" sem reparo; entradas que não são pasta em `drive_c/users`; aplicação parcial
 quando um drive é pasta real; link `d:` velho se a pasta do jogo mudou.
 
