@@ -43,26 +43,33 @@ public struct Bridge: Sendable {
 
     /// Copies the bridge into the engine's Wine and into the prefix, and writes the `steamclient`
     /// forwarders and `steam.exe` where games look for Steam. **The prefix's Wine must be stopped.**
+    ///
+    /// The engine is shared: a game of another prefix may be running from it. So a file there is only
+    /// replaced when its content changes, always by rename (a running game keeps the file it mapped),
+    /// and only once it is final (the signature is removed before it is in place).
     public func stage(into engine: Engine, prefix: URL) throws {
+        let data32 = try Data(contentsOf: dll32)
+        let data64 = try Data(contentsOf: dll64)
+        // Built and checked before anything is written: a bad bridge changes nothing.
+        let forwarder32 = try PEForwarder.generate(from: data32, target: "lsteamclient")
+        let forwarder64 = try PEForwarder.generate(from: data64, target: "lsteamclient")
+
         let wineLib = engine.root.appendingPathComponent("wine/lib/wine", isDirectory: true)
-        let unixTarget = wineLib.appendingPathComponent("x86_64-unix/lsteamclient.so")
-        try copy(unixLibrary, to: unixTarget)
-        // The copy keeps the build's ad-hoc signature, which no longer matches once Wine loads it here.
-        removeSignature(unixTarget)
-        try copy(dll64, to: wineLib.appendingPathComponent("x86_64-windows/lsteamclient.dll"))
-        try copy(dll32, to: wineLib.appendingPathComponent("i386-windows/lsteamclient.dll"))
+        // The build's ad-hoc signature no longer matches once Wine loads the library from here.
+        try install(Data(contentsOf: unixLibrary), at: wineLib.appendingPathComponent("x86_64-unix/lsteamclient.so"),
+            prepare: removeSignature)
+        try install(data64, at: wineLib.appendingPathComponent("x86_64-windows/lsteamclient.dll"))
+        try install(data32, at: wineLib.appendingPathComponent("i386-windows/lsteamclient.dll"))
 
         let windows = prefix.appendingPathComponent("drive_c/windows", isDirectory: true)
-        try copy(dll64, to: windows.appendingPathComponent("system32/lsteamclient.dll"))
-        try copy(dll32, to: windows.appendingPathComponent("syswow64/lsteamclient.dll"))
+        try install(data64, at: windows.appendingPathComponent("system32/lsteamclient.dll"))
+        try install(data32, at: windows.appendingPathComponent("syswow64/lsteamclient.dll"))
 
         let steam = prefix.appendingPathComponent("drive_c/Program Files (x86)/Steam", isDirectory: true)
-        let forwarder32 = try PEForwarder.generate(from: Data(contentsOf: dll32), target: "lsteamclient")
-        let forwarder64 = try PEForwarder.generate(from: Data(contentsOf: dll64), target: "lsteamclient")
-        try write(forwarder32, to: steam.appendingPathComponent("steamclient.dll"))
-        try write(forwarder64, to: steam.appendingPathComponent("bin64/steamclient.dll"))
-        try write(forwarder64, to: steam.appendingPathComponent("steamclient64.dll"))
-        try copy(steamStub, to: steam.appendingPathComponent("steam.exe"))
+        try install(forwarder32, at: steam.appendingPathComponent("steamclient.dll"))
+        try install(forwarder64, at: steam.appendingPathComponent("bin64/steamclient.dll"))
+        try install(forwarder64, at: steam.appendingPathComponent("steamclient64.dll"))
+        try install(Data(contentsOf: steamStub), at: steam.appendingPathComponent("steam.exe"))
     }
 
     /// What a game needs to find the Mac's Steam through the bridge.
@@ -77,15 +84,20 @@ public struct Bridge: Sendable {
         ]
     }
 
-    private func copy(_ source: URL, to target: URL) throws {
-        try write(Data(contentsOf: source), to: target)
-    }
-
-    /// Atomic (temporary file + rename), so a Wine that starts meanwhile never loads half a file.
-    private func write(_ data: Data, to target: URL) throws {
-        try FileManager.default.createDirectory(
-            at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try data.write(to: target, options: .atomic)
+    /// Puts `data` at `target` unless it is already there: written to a temporary file next to it,
+    /// `prepare`d there, compared, and renamed into place only if different.
+    private func install(_ data: Data, at target: URL, prepare: ((URL) -> Void)? = nil) throws {
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let temporary = target.deletingLastPathComponent()
+            .appendingPathComponent(".\(target.lastPathComponent).\(UUID().uuidString)")
+        try data.write(to: temporary)
+        defer { try? fileManager.removeItem(at: temporary) }
+        prepare?(temporary)
+        if let current = try? Data(contentsOf: target), current == (try Data(contentsOf: temporary)) { return }
+        guard rename(temporary.path, target.path) == 0 else {
+            throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: target.path])
+        }
     }
 
     private func removeSignature(_ file: URL) {

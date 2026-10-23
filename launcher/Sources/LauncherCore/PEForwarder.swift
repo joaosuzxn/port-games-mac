@@ -119,7 +119,11 @@ public enum PEForwarder {
         entries: [(ordinal: UInt32, name: String)], forwardTarget: String?, dllName: String
     ) throws -> [UInt8] {
         let base = entries.map(\.ordinal).min()!
-        let functionCount = Int(entries.map(\.ordinal).max()! - base + 1)
+        // Named exports index the function table through 16-bit ordinals, so a wider span is corrupt
+        // (and would mean a huge table).
+        let span = entries.map(\.ordinal).max()! - base
+        guard span <= UInt32(UInt16.max) else { throw PEForwarderError.truncated }
+        let functionCount = Int(span) + 1
         let byName = entries.sorted { latin1Less($0.name, $1.name) }
         let nameCount = byName.count
 
@@ -354,8 +358,11 @@ struct PEImage {
             let address = try bytes.u32(at: functions + i * 4)
             guard address != 0 else { continue }
             let isForward = rva <= address && UInt64(address) < UInt64(rva) + UInt64(size)
+            // A corrupt base near UInt32.max must be an error, not an overflow trap.
+            let (ordinal, overflow) = base.addingReportingOverflow(UInt32(i))
+            guard !overflow else { throw PEForwarderError.truncated }
             out.append(Export(
-                ordinal: base + UInt32(i), name: nameByIndex[i], forward: isForward ? try cString(address) : nil))
+                ordinal: ordinal, name: nameByIndex[i], forward: isForward ? try cString(address) : nil))
         }
         return out
     }
