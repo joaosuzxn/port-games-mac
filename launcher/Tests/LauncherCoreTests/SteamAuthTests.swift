@@ -161,17 +161,43 @@ struct SteamAuthTests {
         #expect(fields["steamid"] == "76561198000000001")
     }
 
+    /// Steam refusing to renew asks for a new login, but forgets nothing: on 2026-10-23 it refused a
+    /// fresh, valid SteamClient refresh token with EResult 63 and then 15 (the login was lost).
     @Test(arguments: [
         FakeHTTP.Response(status: 401, json: "", eresult: nil),
-        FakeHTTP.Response(json: #"{"response":{}}"#, eresult: 26),  // revoked
+        FakeHTTP.Response(json: #"{"response":{}}"#, eresult: 26),  // Revoked
+        FakeHTTP.Response(json: #"{"response":{}}"#, eresult: 63),  // AccountLogonDenied (seen for real)
+        FakeHTTP.Response(json: #"{"response":{}}"#, eresult: 15),  // AccessDenied (seen for real)
     ])
-    func revokedTokenClearsAndReturnsNil(response: FakeHTTP.Response) async throws {
+    func refusedRenewalNeedsLoginButKeepsData(response: FakeHTTP.Response) async throws {
         let http = FakeHTTP()
         await http.on("GenerateAccessTokenForApp", response)
-        let store = MemoryTokenStore(SteamSession(accountName: "joao", steamID: 1, refreshToken: jwt(), accessToken: "old"))
+        let stored = SteamSession(accountName: "joao", steamID: 1, refreshToken: jwt(), accessToken: "old")
+        let store = MemoryTokenStore(stored)
 
         #expect(try await SteamAuth(http: http, store: store).validSession() == nil)
-        #expect(try store.load() == nil)
+        #expect(try store.load() == stored)
+    }
+
+    /// The access token from the login is good for about a day: use it, do not ask Steam for another.
+    @Test func unexpiredAccessTokenNeedsNoNetwork() async throws {
+        let http = FakeHTTP()
+        let stored = SteamSession(accountName: "joao", steamID: 1, refreshToken: jwt(),
+            accessToken: jwt(expires: Date().addingTimeInterval(3600)))
+        let store = MemoryTokenStore(stored)
+
+        #expect(try await SteamAuth(http: http, store: store).validSession() == stored)
+        #expect(await http.requests.isEmpty)
+    }
+
+    /// About to expire counts as expired (a long download must not start with a dying token).
+    @Test func accessTokenAboutToExpireIsRenewed() async throws {
+        let http = FakeHTTP()
+        await http.on("GenerateAccessTokenForApp", FakeHTTP.Response(json: #"{"response":{"access_token":"fresh"}}"#))
+        let store = MemoryTokenStore(SteamSession(accountName: "joao", steamID: 1, refreshToken: jwt(),
+            accessToken: jwt(expires: Date().addingTimeInterval(60))))
+
+        #expect(try await SteamAuth(http: http, store: store).validSession()?.accessToken == "fresh")
     }
 
     /// Steam being busy or down is not a logout: the session stays and the error goes up.
