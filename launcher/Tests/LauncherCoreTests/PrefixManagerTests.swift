@@ -79,12 +79,18 @@ private struct FakeRunner: WineRunning {
     let recorder: Recorder
     var status: Int32 = 0
     var error: CancellationError?
+    /// wineboot that never ends (bug #11), until cancelled.
+    var hangs = false
 
     func run(_ args: [String], env: [String: String], cwd: URL?) async throws -> Int32 {
         await recorder.begin(prefix, args)
         if let error {
             await recorder.end()
             throw error
+        }
+        if hangs {
+            defer { Task { await recorder.end() } }
+            try await Task.sleep(for: .seconds(60))
         }
         try await Task.sleep(for: .milliseconds(150))
         if status == 0 {
@@ -281,6 +287,57 @@ struct PrefixManagerTests {
                 try await manager.ensurePrefix(appID: 331160, recipe: .generic, gameDir: dir.appendingPathComponent("G"))
             }
             // The wineserver wineboot started must be down before the creation lock is released.
+            #expect(await recorder.stops == [paths.prefix(331160).path])
+        }
+    }
+
+    /// A game whose prefix exists does not wait behind another game's (possibly hung) creation.
+    @Test func existingPrefixSkipsTheCreationLock() async throws {
+        try await withAsyncScratchDirectory { dir in
+            let paths = try makePaths(in: dir)
+            try makeFakePrefix(paths.prefix(331160), outsideDocuments: dir.appendingPathComponent("MacDocuments"))
+            let lock = try await FileLock.acquire(paths.prefixes.appendingPathComponent(".create.lock"))
+            defer { lock.release() }
+
+            let done = Task { try await manager(paths, Recorder()).ensurePrefix(
+                appID: 331160, recipe: .generic, gameDir: dir.appendingPathComponent("G")) }
+            try await Task.sleep(for: .seconds(1))
+            let finished = ContinuousClock.now
+            _ = try await done.value
+            #expect(ContinuousClock.now - finished < .milliseconds(200), "waited for the creation lock")
+        }
+    }
+
+    /// Spec (bug #11): no prefix is created while a game runs; it says so instead of hanging.
+    @Test func noCreationWhileAnotherGameRuns() async throws {
+        try await withAsyncScratchDirectory { dir in
+            let paths = try makePaths(in: dir)
+            try FileManager.default.createDirectory(at: paths.prefix(480), withIntermediateDirectories: true)
+            let recorder = Recorder()
+            let manager = PrefixManager(paths: paths, engine: engine,
+                makeRunner: { prefix, _ in FakeRunner(prefix: prefix, recorder: recorder) },
+                isPrefixRunning: { $0.lastPathComponent == "480" })
+
+            await #expect(throws: PrefixError.otherGameRunning(480)) {
+                try await manager.ensurePrefix(appID: 331160, recipe: .generic, gameDir: dir.appendingPathComponent("G"))
+            }
+            #expect(await recorder.runs.isEmpty)
+        }
+    }
+
+    @Test func hungWinebootTimesOut() async throws {
+        try await withAsyncScratchDirectory { dir in
+            let paths = try makePaths(in: dir)
+            let recorder = Recorder()
+            let manager = PrefixManager(paths: paths, engine: engine,
+                makeRunner: { prefix, _ in FakeRunner(prefix: prefix, recorder: recorder, hangs: true) },
+                winebootTimeout: .milliseconds(300))
+            let started = ContinuousClock.now
+
+            await #expect(throws: PrefixError.creationTimedOut(appID: 331160)) {
+                try await manager.ensurePrefix(appID: 331160, recipe: .generic, gameDir: dir.appendingPathComponent("G"))
+            }
+            #expect(ContinuousClock.now - started < .seconds(5))
             #expect(await recorder.stops == [paths.prefix(331160).path])
         }
     }
