@@ -298,20 +298,22 @@ struct PrefixManagerTests {
         }
     }
 
-    /// A game whose prefix exists does not wait behind another game's (possibly hung) creation.
-    @Test func existingPrefixSkipsTheCreationLock() async throws {
+    /// Bug #11: no Wine starts while another prefix is being created, so a game whose prefix exists waits
+    /// for that creation (bounded by the wineboot timeout) instead of skipping the lock.
+    @Test func existingPrefixWaitsForACreationInProgress() async throws {
         try await withAsyncScratchDirectory { dir in
             let paths = try makePaths(in: dir)
             try makeFakePrefix(paths.prefix(331160), outsideDocuments: dir.appendingPathComponent("MacDocuments"))
             let lock = try await FileLock.acquire(paths.prefixes.appendingPathComponent(".create.lock"))
-            defer { lock.release() }
 
             let done = Task { try await manager(paths, Recorder()).ensurePrefix(
                 appID: 331160, recipe: .generic, gameDir: dir.appendingPathComponent("G")) }
-            try await Task.sleep(for: .seconds(1))
-            let finished = ContinuousClock.now
+            try await Task.sleep(for: .milliseconds(400))
+            let recipeApplied = read(paths.prefix(331160).appendingPathComponent("user.reg")).contains("EmulateModeset")
+            #expect(!recipeApplied, "prepared the prefix while another one was being created")
+            lock.release()
             _ = try await done.value
-            #expect(ContinuousClock.now - finished < .milliseconds(200), "waited for the creation lock")
+            #expect(read(paths.prefix(331160).appendingPathComponent("user.reg")).contains("EmulateModeset"))
         }
     }
 

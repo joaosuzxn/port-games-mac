@@ -46,6 +46,13 @@ private actor Calls {
     func stopped() { stops += 1 }
 }
 
+/// Whether someone holds the lock file; the probe itself lets go at once.
+private func isLocked(_ file: URL) -> Bool {
+    guard let probe = try? FileLock.tryAcquire(file) else { return true }
+    probe.release()
+    return false
+}
+
 /// Whether "Wine" is up in the prefix: set by the first spawn, as a real wineserver would be.
 private final class WineUp: @unchecked Sendable {
     private let lock = NSLock()
@@ -65,6 +72,11 @@ private struct FakeRunner: WineRunning {
 
     func spawn(_ args: [String], env: [String: String], cwd: URL?) async throws -> Process {
         await calls.spawned(.init(args: args, cwd: cwd?.path, steamAppID: env["SteamAppId"], prefix: env["WINEPREFIX"]))
+        if let prefix = env["WINEPREFIX"],
+            isLocked(URL(fileURLWithPath: prefix).deletingLastPathComponent().appendingPathComponent(".create.lock"))
+        {
+            await calls.event("start lock held at spawn")
+        }
         wineUp?.set()
         if failGame, args[0] != GameLauncher.steamStub { throw CocoaError(.fileNoSuchFile) }
         let process = Process()
@@ -105,6 +117,9 @@ private func launcher(
         appInfo: { infos },
         preparePrefix: { appID, _, _ in
             await calls.event("prefix \(appID)")
+            if isLocked(paths.prefixes.appendingPathComponent(".create.lock")) {
+                await calls.event("start lock held while preparing")
+            }
             return paths.prefix(appID)
         },
         stageBridge: { _, _ in await calls.event("bridge") },
@@ -135,7 +150,8 @@ struct GameLauncherTests {
             #expect(spawns.allSatisfy { $0.steamAppID == "331160" && $0.prefix == paths.prefix(331160).path })
             // Prefix and bridge are ready before anything starts.
             let events = await calls.events
-            #expect(Array(events.prefix(2)).sorted() == ["bridge", "prefix 331160"])
+            let steps = events.filter { $0 == "bridge" || $0.hasPrefix("prefix ") || $0.hasPrefix("spawn ") }
+            #expect(Array(steps.prefix(2)).sorted() == ["bridge", "prefix 331160"])
         }
     }
 
@@ -286,6 +302,26 @@ struct GameLauncherTests {
             #expect(try await [a, b] == [4, 4])
             // After the end, waiting again answers at once.
             #expect(try await game.wait() == 4)
+        }
+    }
+
+    /// Bug #11: from preparing the prefix until the game's Wine is up, no prefix may be created, so play
+    /// holds the start lock all along.
+    @Test func playHoldsTheStartLockUntilTheGameStarts() async throws {
+        try await withAsyncScratchDirectory { dir in
+            let paths = try makePaths(in: dir)
+            _ = try installed(331160, in: paths)
+            let calls = Calls()
+
+            let game = try await launcher(paths, steam: FakeSteam(running: true, loginAfterChecks: 0), calls: calls)
+                .play(appID: 331160)
+            _ = try await game.wait()
+
+            let events = await calls.events
+            #expect(events.contains("start lock held while preparing"))
+            #expect(events.filter { $0 == "start lock held at spawn" }.count == 2)
+            // Released once play returns.
+            #expect(!isLocked(paths.prefixes.appendingPathComponent(".create.lock")))
         }
     }
 
