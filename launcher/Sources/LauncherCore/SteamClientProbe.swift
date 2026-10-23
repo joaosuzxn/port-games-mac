@@ -37,10 +37,32 @@ public struct SystemSteamClient: SteamClientProbe {
         try process.runAndWait()
     }
 
-    /// Running, with an account marked as the most recent login (`config/loginusers.vdf`).
+    /// Running, and its connection log says it is logged on. (`loginusers.vdf` has no reliable marker:
+    /// on this Mac it carries no `MostRecent`, and `registry.vdf` no `ActiveUser`.)
     public func isLoggedIn() -> Bool {
-        let file = home.appendingPathComponent("Library/Application Support/Steam/config/loginusers.vdf")
-        guard isRunning(), let text = try? String(contentsOf: file, encoding: .utf8) else { return false }
-        return text.contains(#/"MostRecent"\s+"1"/#)
+        isRunning() && connectionLogSaysLoggedOn()
+    }
+
+    /// Steam starts a new `logs/connection_log.txt` each time it opens (the old one becomes
+    /// `.previous`), so its last state is the current session's.
+    func connectionLogSaysLoggedOn() -> Bool {
+        let file = home.appendingPathComponent("Library/Application Support/Steam/logs/connection_log.txt")
+        guard let handle = try? FileHandle(forReadingFrom: file) else { return false }
+        defer { try? handle.close() }
+        // The end is enough: the last state line is what counts.
+        let size = (try? handle.seekToEnd()) ?? 0
+        try? handle.seek(toOffset: size > 65_536 ? size - 65_536 : 0)
+        let tail = String(decoding: (try? handle.readToEnd()) ?? Data(), as: UTF8.self)
+        return Self.isLoggedOn(connectionLog: tail)
+    }
+
+    /// The state of the last line that has one: `[time] [Logged On, 4, 7] …`.
+    static func isLoggedOn(connectionLog: String) -> Bool {
+        for line in connectionLog.split(whereSeparator: \.isNewline).reversed() {
+            if let match = line.firstMatch(of: #/^\[[^\]]*\] \[([A-Za-z ]+), -?\d+, -?\d+\]/#) {
+                return match.1 == "Logged On"
+            }
+        }
+        return false
     }
 }
