@@ -94,8 +94,13 @@ do {
         say("Logged in to Steam as \(session.accountName).")
 
     case .logout:
-        try KeychainTokenStore().clear()
-        say("Steam login forgotten.")
+        let store = KeychainTokenStore()
+        // DepotDownloader got a copy of the refresh token (ADR 0004): forget it there too.
+        if let account = (try? store.load())??.accountName {
+            try DepotDownloaderTool.installedStore(paths: paths)?.removeToken(account: account)
+        }
+        try store.clear()
+        say("Steam login forgotten (also in DepotDownloader's store).")
 
     case .library:
         let games = try await Library(http: steamHTTP, paths: paths, appInfoURL: steamAppInfo)

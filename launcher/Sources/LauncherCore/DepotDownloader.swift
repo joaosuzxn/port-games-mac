@@ -164,6 +164,15 @@ public enum DepotDownloaderTool {
         sha256: "60e80c7c496f3f9a079cd3c62036b35d088c27bc0149baf38f009eb57a52f6a5",
         url: URL(string: "https://github.com/SteamRE/DepotDownloader/releases/download/DepotDownloader_3.4.0/DepotDownloader-macos-arm64.zip"))
 
+    /// The account store of an installed DepotDownloader, if it has been set up (for logout).
+    public static func installedStore(paths: Paths, artifact: Artifact = artifact) -> DepotDownloaderAccountStore? {
+        let remembered = paths.root.appendingPathComponent("tools", isDirectory: true)
+            .appendingPathComponent((artifact.file as NSString).deletingPathExtension, isDirectory: true)
+            .appendingPathComponent("account-store.path")
+        guard let path = try? String(contentsOf: remembered, encoding: .utf8), !path.isEmpty else { return nil }
+        return DepotDownloaderAccountStore(file: URL(fileURLWithPath: path))
+    }
+
     public static func install(
         paths: Paths, artifact: Artifact = artifact,
         isolatedStorage: URL = DepotDownloaderAccountStore.defaultRoot,

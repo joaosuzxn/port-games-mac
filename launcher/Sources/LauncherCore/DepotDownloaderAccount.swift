@@ -45,13 +45,24 @@ enum AccountConfig {
     /// The store with `token` for `account` (replacing an entry whose name differs only in case), every
     /// other field and account kept. `existing` nil: a new store.
     static func settingLoginToken(_ token: String, account: String, in existing: Data?) throws -> Data {
+        try rewritingLoginTokens(in: existing, removing: account, adding: (account, token))
+    }
+
+    /// The store without `account`'s token (name compared without case), everything else kept.
+    static func removingLoginToken(account: String, in existing: Data) throws -> Data {
+        try rewritingLoginTokens(in: existing, removing: account, adding: nil)
+    }
+
+    private static func rewritingLoginTokens(
+        in existing: Data?, removing account: String, adding entry: (String, String)?
+    ) throws -> Data {
         let message = try existing.map(decompress) ?? Data()
         var out = Data()
         for field in try fields(of: message) where field.number != loginTokensField {
             out.append(field.bytes)
         }
         var tokens = try entries(in: message).filter { $0.0.caseInsensitiveCompare(account) != .orderedSame }
-        tokens.append((account, token))
+        if let entry { tokens.append(entry) }
         for (name, value) in tokens {
             out.append(lengthDelimited(loginTokensField, lengthDelimited(1, Data(name.utf8)) + lengthDelimited(2, Data(value.utf8))))
         }
@@ -148,9 +159,20 @@ public struct DepotDownloaderAccountStore: Sendable {
 
     public func setToken(_ token: String, account: String) throws {
         let existing = try? Data(contentsOf: file)
-        let data = try AccountConfig.settingLoginToken(token, account: account, in: existing)
+        try write(AccountConfig.settingLoginToken(token, account: account, in: existing))
+    }
+
+    /// Forgets `account`'s token (logout). No store, nothing to do.
+    public func removeToken(account: String) throws {
+        guard let existing = try? Data(contentsOf: file) else { return }
+        try write(AccountConfig.removingLoginToken(account: account, in: existing))
+    }
+
+    /// Atomic, and readable by the user only: it holds a long-lived refresh token.
+    private func write(_ data: Data) throws {
         try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
         try data.write(to: file, options: .atomic)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
     }
 
     /// Every `AssemFiles` folder under `root`.
