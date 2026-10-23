@@ -72,7 +72,8 @@ public struct GameLauncher: Sendable {
             paths: paths, engine: engine, steam: SystemSteamClient(),
             appInfo: { try AppInfoReader.read(appInfoURL) },
             preparePrefix: { appID, recipe, gameDir in
-                try await PrefixManager(paths: paths, engine: engine).ensurePrefix(appID: appID, recipe: recipe, gameDir: gameDir)
+                // play() already holds the start lock.
+                try await PrefixManager(paths: paths, engine: engine).prepare(appID: appID, recipe: recipe, gameDir: gameDir)
             },
             stageBridge: { engine, prefix in try Bridge(paths: paths, engineID: engine.id).stage(into: engine, prefix: prefix) },
             makeRunner: { prefix, log in WineRunner(engine: engine, prefix: prefix, log: log) },
@@ -126,6 +127,10 @@ public struct GameLauncher: Sendable {
         defer { installLock.release() }
 
         try await ensureSteam()
+        // Bug #11: from preparing the prefix until this game's Wine is up, no prefix is created elsewhere.
+        try FileManager.default.createDirectory(at: paths.prefixes, withIntermediateDirectories: true)
+        let startLock = try await FileLock.acquire(PrefixManager.startLock(paths))
+        defer { startLock.release() }
         let ready = try await preparePrefix(appID, recipe, gameDir)
         try await stageBridge(engine, ready)
 

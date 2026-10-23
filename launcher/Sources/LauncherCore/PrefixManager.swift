@@ -62,18 +62,26 @@ public struct PrefixManager: Sendable {
     /// The game's prefix, created with `wineboot -u` if it has no registry yet, with Wine stopped and the
     /// recipe applied.
     ///
-    /// Runs under an exclusive lock on `prefixes/.create.lock`, so two prefixes are never created at once
-    /// (bug #11: creating one while another Wine starts hangs).
+    /// Runs under the start lock (`prefixes/.create.lock`): no Wine of a launcher game starts while a prefix
+    /// is being created (bug #11: creating one while another Wine starts hangs). The wait is bounded by
+    /// the wineboot timeout. `GameLauncher` holds the same lock itself until the game is up.
     public func ensurePrefix(appID: UInt32, recipe: Recipe, gameDir: URL) async throws -> URL {
+        let lock = try await FileLock.acquire(Self.startLock(paths))
+        defer { lock.release() }
+        return try await prepare(appID: appID, recipe: recipe, gameDir: gameDir)
+    }
+
+    /// The lock held from preparing a prefix until its game's Wine is up.
+    static func startLock(_ paths: Paths) -> URL {
+        paths.prefixes.appendingPathComponent(".create.lock")
+    }
+
+    /// `ensurePrefix` without taking the start lock: the caller holds it.
+    func prepare(appID: UInt32, recipe: Recipe, gameDir: URL) async throws -> URL {
         try FileManager.default.createDirectory(at: paths.prefixes, withIntermediateDirectories: true)
         let prefix = paths.prefix(appID)
         let runner = makeRunner(prefix, paths.logs.appendingPathComponent("\(appID).log"))
-        if !isCreated(prefix) {
-            // Only creation is serialized: a game whose prefix exists never waits behind another's.
-            let lock = try await FileLock.acquire(paths.prefixes.appendingPathComponent(".create.lock"))
-            defer { lock.release() }
-            if !isCreated(prefix) { try await create(prefix, appID: appID, recipe: recipe, runner: runner) }
-        }
+        if !isCreated(prefix) { try await create(prefix, appID: appID, recipe: recipe, runner: runner) }
         // wineserver writes the registry back when it exits: it must be down before the files are edited.
         try await runner.stop(timeout: .seconds(30))
         try applyRecipe(recipe, prefix: prefix, gameDir: gameDir)
