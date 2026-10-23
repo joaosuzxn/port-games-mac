@@ -27,12 +27,15 @@ public enum SteamAuthError: Error, LocalizedError, Equatable {
     case loginFailed(eresult: Int)
     /// Steam answered with something unexpected.
     case unexpectedResponse(String)
+    /// Steam is busy or down (HTTP status or EResult); try again later. The login is kept.
+    case unavailable(code: Int)
 
     public var errorDescription: String? {
         switch self {
         case .notLoggedIn: return "not logged in to Steam; log in again with the QR code"
         case .loginFailed(let eresult): return "the Steam QR login failed or expired (EResult \(eresult)); try again"
         case .unexpectedResponse(let detail): return "unexpected answer from Steam: \(detail)"
+        case .unavailable(let code): return "Steam is not answering right now (\(code)); try again in a moment"
         }
     }
 }
@@ -172,10 +175,16 @@ public actor SteamAuth {
         let reply = try await api.post(
             "IAuthenticationService/GenerateAccessTokenForApp",
             ["refresh_token": session.refreshToken, "steamid": String(session.steamID)])
-        if reply.status >= 500 { throw URLError(.badServerResponse) }
-        guard reply.status == 200, reply.eresult ?? 1 == 1, let access = reply.response["access_token"] as? String else {
+        // Forget the login only when Steam says the token is no good; anything else (busy, down, odd
+        // answer) is thrown and the session stays.
+        let eresult = reply.eresult ?? 1
+        if reply.status == 401 || reply.status == 403 || Self.revokedEResults.contains(eresult) {
             try store.clear()
             return nil
+        }
+        guard reply.status == 200, eresult == 1 else { throw SteamAuthError.unavailable(code: eresult == 1 ? reply.status : eresult) }
+        guard let access = reply.response["access_token"] as? String else {
+            throw SteamAuthError.unexpectedResponse("GenerateAccessTokenForApp without an access token")
         }
         session.accessToken = access
         // Steam may rotate the refresh token as well.
@@ -183,6 +192,10 @@ public actor SteamAuth {
         try store.save(session)
         return session
     }
+
+    /// EResults that mean the refresh token is dead: InvalidPassword, InvalidParam, AccessDenied,
+    /// Revoked, Expired.
+    static let revokedEResults: Set<Int> = [5, 8, 15, 26, 27]
 
     /// Steam sends 64-bit IDs as strings (and some as numbers).
     private static func string(_ value: Any?) -> String? {
