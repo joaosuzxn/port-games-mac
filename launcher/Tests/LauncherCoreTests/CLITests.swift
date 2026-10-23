@@ -15,6 +15,7 @@ struct CLITests {
         #expect(try CLI.parse(["uninstall", "331160"]) == .uninstall(331160))
         #expect(try CLI.parse(["play", "480"]) == .play(480))
         #expect(try CLI.parse(["status", "480"]) == .status(480))
+        #expect(try CLI.parse(["stop", "480"]) == .stop(480))
         #expect(try CLI.parse(["recipe", "331160", "--show"])
             == .recipe(appID: 331160, edits: RecipeEdits(show: true)))
         #expect(try CLI.parse([
@@ -36,7 +37,7 @@ struct CLITests {
     }
 
     @Test func usageListsEveryCommand() {
-        for command in ["login", "logout", "library", "install", "update", "uninstall", "play", "status", "recipe"] {
+        for command in ["login", "logout", "library", "install", "update", "uninstall", "play", "stop", "status", "recipe"] {
             #expect(CLI.usage.contains("launcherctl \(command)"), "\(command)")
         }
     }

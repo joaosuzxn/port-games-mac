@@ -173,6 +173,42 @@ struct InstallerTests {
         }
     }
 
+    /// Uninstalling during a download waits for it, then removes everything: never a "complete" state
+    /// left over a folder that was deleted mid-download.
+    @Test func uninstallWaitsForADownload() async throws {
+        try await withAsyncScratchDirectory { dir in
+            let paths = try makePaths(in: dir)
+            let downloader = FakeDownloader()
+            await downloader.setDelay(.milliseconds(300))
+            let installer = Installer(paths: paths, downloader: downloader, volumes: FakeVolumes())
+
+            let install = Task { try await installer.install(carros(), session: session, library: nil) { _ in } }
+            try await Task.sleep(for: .milliseconds(80))
+            try await installer.uninstall(331160)
+            _ = try? await install.value
+
+            #expect(try GameStateStore.load(331160, paths: paths) == nil)
+            #expect(!FileManager.default.fileExists(atPath: paths.gameDir(331160, library: nil).path))
+        }
+    }
+
+    @Test func uninstallAndUpdateRefuseWhileTheGameRuns() async throws {
+        try await withAsyncScratchDirectory { dir in
+            let paths = try makePaths(in: dir)
+            let downloader = FakeDownloader()
+            _ = try await Installer(paths: paths, downloader: downloader, volumes: FakeVolumes())
+                .install(carros(), session: session, library: nil) { _ in }
+            let running = Installer(paths: paths, downloader: downloader, volumes: FakeVolumes(), isGameRunning: { _ in true })
+
+            await #expect(throws: InstallerError.gameRunning(331160)) { try await running.uninstall(331160) }
+            await #expect(throws: InstallerError.gameRunning(331160)) {
+                try await running.update(carros(build: 999), session: session) { _ in }
+            }
+            #expect(FileManager.default.fileExists(atPath: paths.gameDir(331160, library: nil).appendingPathComponent("Cars.exe").path))
+            #expect(await downloader.calls.count == 1)
+        }
+    }
+
     /// Installing the same game twice at once must not run two downloads into one folder.
     @Test func sameGameInstallsOneAtATime() async throws {
         try await withAsyncScratchDirectory { dir in
@@ -202,7 +238,7 @@ struct InstallerTests {
             try RecipeStore(paths: paths).saveLocal(.generic, for: 331160)
             try Data("mine".utf8).write(to: library.appendingPathComponent("other.txt"))
 
-            try installer.uninstall(331160)
+            try await installer.uninstall(331160)
 
             #expect(!FileManager.default.fileExists(atPath: library.appendingPathComponent("331160").path))
             #expect(try GameStateStore.load(331160, paths: paths) == nil)
@@ -213,8 +249,8 @@ struct InstallerTests {
         }
     }
 
-    @Test func uninstallRefusesAFolderThatIsNotTheGames() throws {
-        try withScratchDirectory { dir in
+    @Test func uninstallRefusesAFolderThatIsNotTheGames() async throws {
+        try await withAsyncScratchDirectory { dir in
             let paths = try makePaths(in: dir)
             // A state file pointing at some folder of the user (corrupt or edited): never deleted.
             let precious = dir.appendingPathComponent("Documents", isDirectory: true)
@@ -224,7 +260,7 @@ struct InstallerTests {
                 complete: true), paths: paths)
             let installer = Installer(paths: paths, downloader: FakeDownloader(), volumes: FakeVolumes())
 
-            #expect(throws: InstallerError.self) { try installer.uninstall(331160) }
+            await #expect(throws: InstallerError.self) { try await installer.uninstall(331160) }
             #expect(FileManager.default.fileExists(atPath: precious.path))
         }
     }

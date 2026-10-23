@@ -289,6 +289,38 @@ struct GameLauncherTests {
         }
     }
 
+    /// While the game downloads (install lock held), it cannot be started.
+    @Test func playRefusesWhileInstalling() async throws {
+        try await withAsyncScratchDirectory { dir in
+            let paths = try makePaths(in: dir)
+            _ = try installed(331160, in: paths)
+            let calls = Calls()
+            let lock = try await FileLock.acquire(paths.state.appendingPathComponent("331160.lock"))
+            defer { lock.release() }
+
+            await #expect(throws: LauncherError.installing(331160)) {
+                try await launcher(paths, steam: FakeSteam(running: true, loginAfterChecks: 0), calls: calls)
+                    .play(appID: 331160)
+            }
+            #expect(await calls.events.isEmpty)
+        }
+    }
+
+    /// A game left running (launcherctl closed, app crashed) can be seen and stopped by app ID.
+    @Test func stopByAppID() async throws {
+        try await withAsyncScratchDirectory { dir in
+            let paths = try makePaths(in: dir)
+            let calls = Calls()
+            let launcher = launcher(paths, steam: FakeSteam(running: true, loginAfterChecks: 0), calls: calls,
+                prefixRunning: true)
+
+            #expect(launcher.isRunning(appID: 331160))
+            try await launcher.stop(appID: 331160)
+            #expect(await calls.stops == 1)
+            #expect(LauncherError.alreadyRunning(331160).localizedDescription.contains("launcherctl stop 331160"))
+        }
+    }
+
     @Test func waitReturnsTheGamesExitCodeAndStopStopsWine() async throws {
         try await withAsyncScratchDirectory { dir in
             let paths = try makePaths(in: dir)
