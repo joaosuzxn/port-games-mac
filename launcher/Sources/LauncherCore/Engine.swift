@@ -134,10 +134,13 @@ public enum EngineInstaller {
         let errors = Pipe()
         process.standardError = errors
         process.standardOutput = FileHandle.nullDevice
+        let done = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in done.signal() }
         try process.run()
         // Read before waiting: a full pipe would block tar and the wait would never end.
         let output = errors.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
+        // Not waitUntilExit(): see Process.runAndWait().
+        done.wait()
         guard process.terminationStatus == 0 else {
             throw EngineError.extractionFailed(
                 archive: archive.lastPathComponent, status: process.terminationStatus,

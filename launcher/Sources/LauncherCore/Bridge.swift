@@ -107,7 +107,6 @@ public struct Bridge: Sendable {
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         // Not fatal: an unsigned file has nothing to remove, and the Python spike ignored it too.
-        guard (try? process.run()) != nil else { return }
-        process.waitUntilExit()
+        try? process.runAndWait()
     }
 }
