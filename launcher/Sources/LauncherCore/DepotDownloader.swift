@@ -84,11 +84,11 @@ public struct DepotDownloader: DepotDownloaderProtocol {
         try accountStore.setToken(session.refreshToken, account: session.accountName)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
 
-        var arguments = ["-app", String(appID)]
-        for depot in depots {
-            arguments += ["-depot", String(depot.id)]
-            if let manifest = depot.publicManifest { arguments += ["-manifest", String(manifest)] }
-        }
+        // One -depot with every id and one -manifest with every id, in the same order: 3.4.0 ignores a
+        // repeated -depot ("Argument #7 -depot was not used.").
+        var arguments = ["-app", String(appID), "-depot"] + depots.map { String($0.id) }
+        let manifests = depots.compactMap(\.publicManifest)
+        if manifests.count == depots.count { arguments += ["-manifest"] + manifests.map { String($0) } }
         arguments += ["-os", "windows", "-dir", dir.path, "-username", session.accountName, "-remember-password"]
 
         let process = Process()
@@ -107,11 +107,15 @@ public struct DepotDownloader: DepotDownloaderProtocol {
         try process.run()
         var parser = DepotProgress(depots: depots)
         var tail: [String] = []
+        var finished: Set<UInt32> = []
         try await withTaskCancellationHandler {
             for try await line in output.fileHandleForReading.bytes.lines {
                 logHandle?.write(Data((line + "\n").utf8))
                 let clean = DepotProgress.stripEscapes(line).trimmingCharacters(in: .whitespaces)
                 if !clean.isEmpty { tail = Array((tail + [clean]).suffix(15)) }
+                if let done = clean.firstMatch(of: #/^Depot (\d+) - Downloaded/#), let id = UInt32(done.1) {
+                    finished.insert(id)
+                }
                 if let value = parser.consume(line) { progress(value) }
             }
         } onCancel: {
@@ -125,6 +129,13 @@ public struct DepotDownloader: DepotDownloaderProtocol {
                 throw SteamAuthError.notLoggedIn
             }
             throw DepotDownloaderError.failed(status: process.terminationStatus, output: tail.joined(separator: "\n"))
+        }
+        // Exit 0 is not enough: every depot asked for must have been reported done.
+        let missing = depots.map(\.id).filter { !finished.contains($0) }
+        guard missing.isEmpty else {
+            throw DepotDownloaderError.failed(
+                status: 0, output: "depots not downloaded: \(missing.map(String.init).joined(separator: ", "))\n"
+                    + tail.joined(separator: "\n"))
         }
     }
 
