@@ -8,6 +8,10 @@ public enum PrefixError: Error, LocalizedError, Equatable {
     case outsidePrefix(path: String)
     /// A drive in `dosdevices/` is a real file or folder, not a link; it was left alone.
     case notALink(path: String)
+    /// Another game runs: creating a prefix meanwhile can hang (bug #11), so it waits until that one ends.
+    case otherGameRunning(UInt32)
+    /// `wineboot -u` did not finish in time (Wine was stopped).
+    case creationTimedOut(appID: UInt32)
 
     public var errorDescription: String? {
         switch self {
@@ -17,6 +21,10 @@ public enum PrefixError: Error, LocalizedError, Equatable {
             return "\(path) points outside the Wine prefix; nothing was changed"
         case .notALink(let path):
             return "\(path) is not a link; it was left alone"
+        case .otherGameRunning(let appID):
+            return "app \(appID) is running; close it before the first start of another game (its Wine prefix is created then)"
+        case .creationTimedOut(let appID):
+            return "creating the Wine prefix of app \(appID) took too long and was stopped; close other Wine apps and try again"
         }
     }
 }
@@ -28,6 +36,8 @@ public struct PrefixManager: Sendable {
     public let engine: Engine
     /// Builds the runner for a prefix and its log; tests put a fake here.
     private let makeRunner: @Sendable (_ prefix: URL, _ log: URL) -> any WineRunning
+    private let isPrefixRunning: @Sendable (URL) -> Bool
+    private let winebootTimeout: Duration
 
     public init(paths: Paths, engine: Engine) {
         self.init(paths: paths, engine: engine) { prefix, log in
@@ -35,10 +45,18 @@ public struct PrefixManager: Sendable {
         }
     }
 
-    init(paths: Paths, engine: Engine, makeRunner: @escaping @Sendable (URL, URL) -> any WineRunning) {
+    init(
+        paths: Paths, engine: Engine, makeRunner: @escaping @Sendable (URL, URL) -> any WineRunning,
+        isPrefixRunning: @escaping @Sendable (URL) -> Bool = {
+            WineServerLock.holder(prefix: $0, serverRoot: WineServerLock.defaultRoot) != nil
+        },
+        winebootTimeout: Duration = .seconds(180)
+    ) {
         self.paths = paths
         self.engine = engine
         self.makeRunner = makeRunner
+        self.isPrefixRunning = isPrefixRunning
+        self.winebootTimeout = winebootTimeout
     }
 
     /// The game's prefix, created with `wineboot -u` if it has no registry yet, with Wine stopped and the
@@ -48,28 +66,52 @@ public struct PrefixManager: Sendable {
     /// (bug #11: creating one while another Wine starts hangs).
     public func ensurePrefix(appID: UInt32, recipe: Recipe, gameDir: URL) async throws -> URL {
         try FileManager.default.createDirectory(at: paths.prefixes, withIntermediateDirectories: true)
-        let lock = try await FileLock.acquire(paths.prefixes.appendingPathComponent(".create.lock"))
-        defer { lock.release() }
-
         let prefix = paths.prefix(appID)
         let runner = makeRunner(prefix, paths.logs.appendingPathComponent("\(appID).log"))
-        if !FileManager.default.fileExists(atPath: prefix.appendingPathComponent("system.reg").path) {
-            try FileManager.default.createDirectory(at: prefix, withIntermediateDirectories: true)
-            let env = WineEnvironment.make(engine: engine, prefix: prefix, recipe: recipe)
-            do {
-                let status = try await runner.run(["wineboot", "-u"], env: env, cwd: nil)
-                guard status == 0 else { throw PrefixError.creationFailed(appID: appID, status: status) }
-            } catch {
-                // wineboot's wineserver outlives it; it must be down before the lock is released (bug #11).
-                // Detached, so that a cancelled caller does not cancel the stop as well.
-                await Task.detached { try? await runner.stop(timeout: .seconds(30)) }.value
-                throw error
-            }
+        if !isCreated(prefix) {
+            // Only creation is serialized: a game whose prefix exists never waits behind another's.
+            let lock = try await FileLock.acquire(paths.prefixes.appendingPathComponent(".create.lock"))
+            defer { lock.release() }
+            if !isCreated(prefix) { try await create(prefix, appID: appID, recipe: recipe, runner: runner) }
         }
         // wineserver writes the registry back when it exits: it must be down before the files are edited.
         try await runner.stop(timeout: .seconds(30))
         try applyRecipe(recipe, prefix: prefix, gameDir: gameDir)
         return prefix
+    }
+
+    private func isCreated(_ prefix: URL) -> Bool {
+        FileManager.default.fileExists(atPath: prefix.appendingPathComponent("system.reg").path)
+    }
+
+    /// `wineboot -u` in a new prefix, refused while another game runs and stopped after `winebootTimeout`.
+    private func create(_ prefix: URL, appID: UInt32, recipe: Recipe, runner: any WineRunning) async throws {
+        let others = (try? FileManager.default.contentsOfDirectory(atPath: paths.prefixes.path)) ?? []
+        for name in others.sorted() where !name.hasPrefix(".") && name != String(appID) {
+            if let other = UInt32(name), isPrefixRunning(paths.prefixes.appendingPathComponent(name, isDirectory: true)) {
+                throw PrefixError.otherGameRunning(other)
+            }
+        }
+        try FileManager.default.createDirectory(at: prefix, withIntermediateDirectories: true)
+        let env = WineEnvironment.make(engine: engine, prefix: prefix, recipe: recipe)
+        let timeout = winebootTimeout
+        do {
+            let status = try await withThrowingTaskGroup(of: Int32.self) { group in
+                group.addTask { try await runner.run(["wineboot", "-u"], env: env, cwd: nil) }
+                group.addTask {
+                    try await Task.sleep(for: timeout)
+                    throw PrefixError.creationTimedOut(appID: appID)
+                }
+                defer { group.cancelAll() }
+                return try await group.next()!
+            }
+            guard status == 0 else { throw PrefixError.creationFailed(appID: appID, status: status) }
+        } catch {
+            // wineboot's wineserver outlives it; it must be down before the lock is released (bug #11).
+            // Detached, so that a cancelled caller does not cancel the stop as well.
+            await Task.detached { try? await runner.stop(timeout: .seconds(30)) }.value
+            throw error
+        }
     }
 
     /// Writes the recipe into a prefix. **The prefix's Wine must be stopped.**
