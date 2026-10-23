@@ -31,8 +31,10 @@ private func write(_ text: String, to url: URL, executable: Bool = false) throws
 }
 
 /// A fake Sikarugir template: one root `Template-1.0.24.app/` with frameworks (one symlink),
-/// renderers and a launcher that the engine must NOT pick up.
-private func makeTemplateTar(in dir: URL, name: String = "template.tar.xz") throws -> URL {
+/// renderers, Vulkan driver manifests and a launcher that the engine must NOT pick up.
+private func makeTemplateTar(
+    in dir: URL, name: String = "template.tar.xz", withVulkan: Bool = true
+) throws -> URL {
     let source = dir.appendingPathComponent("template-src-\(UUID().uuidString)", isDirectory: true)
     let contents = source.appendingPathComponent("Template-1.0.24.app/Contents", isDirectory: true)
     try write("framework", to: contents.appendingPathComponent("Frameworks/libfoo.1.dylib"))
@@ -44,6 +46,12 @@ private func makeTemplateTar(in dir: URL, name: String = "template.tar.xz") thro
     try write("dxvk dll", to: renderer.appendingPathComponent("dxvk/wine/i386-windows/d3d9.dll"))
     try write("framework", to: renderer.appendingPathComponent("d3dmetal/external/libd3dshared.dylib"))
     try write("d3dmetal dll", to: renderer.appendingPathComponent("d3dmetal/wine/x86_64-windows/d3d11.dll"))
+    if withVulkan {
+        // Same shape as the real manifest: the library path is relative to the manifest's folder.
+        try write(
+            #"{"ICD": {"library_path": "../../../Frameworks/libfoo.1.dylib"}, "file_format_version": "1.0.1"}"#,
+            to: contents.appendingPathComponent("Resources/vulkan/icd.d/kosmickrisp_mesa_icd.json"))
+    }
     try write("#!/bin/sh\n", to: contents.appendingPathComponent("MacOS/launcher"), executable: true)
     let tar = dir.appendingPathComponent(name)
     try makeTarXZ(from: source, root: "Template-1.0.24.app", to: tar)
@@ -106,8 +114,9 @@ struct EngineInstallerTests {
             #expect(exists(engine.root.appendingPathComponent("Frameworks/libfoo.1.dylib")))
             #expect(exists(engine.root.appendingPathComponent("renderer/d9vk/wine/i386-windows/d3d9.dll")))
 
-            // Only the three pieces land in the engine folder; the template's launcher does not.
-            #expect(try names(in: engine.root) == ["Frameworks", "renderer", "wine"])
+            // Only the four pieces land in the engine folder; the template's launcher does not.
+            #expect(try names(in: engine.root) == ["Frameworks", "Resources", "renderer", "wine"])
+            #expect(try names(in: engine.root.appendingPathComponent("Resources")) == ["vulkan"])
             // Nothing else is left next to it (no staging folders).
             #expect(try names(in: paths.engines) == [engineID])
         }
@@ -143,6 +152,59 @@ struct EngineInstallerTests {
                 let folder = try #require(engine.rendererDir(renderer))
                 #expect(exists(folder), "\(renderer) folder should exist in the installed engine")
             }
+        }
+    }
+
+    @Test func installsVulkanDrivers() throws {
+        try withScratchDirectory { dir in
+            let paths = makePaths(in: dir)
+            let engine = try EngineInstaller.install(
+                template: try makeTemplateTar(in: dir), engine: try makeEngineTar(in: dir),
+                id: engineID, paths: paths)
+
+            let manifest = engine.vulkanICD
+            #expect(manifest.path == engine.root.path + "/Resources/vulkan/icd.d/kosmickrisp_mesa_icd.json")
+            #expect(exists(manifest))
+
+            // The manifest's relative `library_path` must land in the engine's Frameworks folder.
+            let json = try JSONSerialization.jsonObject(with: Data(contentsOf: manifest)) as? [String: Any]
+            let icd = try #require(json?["ICD"] as? [String: Any])
+            let libraryPath = try #require(icd["library_path"] as? String)
+            let library = manifest.deletingLastPathComponent().appendingPathComponent(libraryPath).standardizedFileURL
+            #expect(library.path == engine.frameworks.appendingPathComponent("libfoo.1.dylib").path)
+            #expect(exists(library))
+        }
+    }
+
+    @Test func templateWithoutVulkanIsRejected() throws {
+        try withScratchDirectory { dir in
+            let paths = makePaths(in: dir)
+            #expect(throws: EngineError.self) {
+                try EngineInstaller.install(
+                    template: try makeTemplateTar(in: dir, withVulkan: false),
+                    engine: try makeEngineTar(in: dir), id: engineID, paths: paths)
+            }
+            let left = try names(in: paths.engines)
+            #expect(left.isEmpty)
+        }
+    }
+
+    @Test func engineWithoutVulkanIsReinstalled() throws {
+        try withScratchDirectory { dir in
+            let paths = makePaths(in: dir)
+            let template = try makeTemplateTar(in: dir)
+            let engineTar = try makeEngineTar(in: dir)
+            let first = try EngineInstaller.install(
+                template: template, engine: engineTar, id: engineID, paths: paths)
+
+            // An engine installed before the Vulkan folder was copied is not complete.
+            try FileManager.default.removeItem(at: first.root.appendingPathComponent("Resources"))
+            #expect(EngineInstaller.installed(id: engineID, paths: paths) == nil)
+
+            let second = try EngineInstaller.install(
+                template: template, engine: engineTar, id: engineID, paths: paths)
+            #expect(exists(second.vulkanICD))
+            #expect(EngineInstaller.installed(id: engineID, paths: paths) == second)
         }
     }
 
