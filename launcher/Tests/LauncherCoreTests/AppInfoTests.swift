@@ -111,6 +111,15 @@ private let carros: [(String, Node)] = [
                 ("config", .map([("oslist", .string("windows"))])),
                 ("manifests", .map([("public", .uint64(5_000_000_000_000_000_001))])),
             ])),
+            // The DirectX redist: shared with another app, no manifest of its own.
+            ("228990", .map([
+                ("config", .map([("oslist", .string("windows"))])),
+                ("depotfromapp", .string("228980")), ("sharedinstall", .string("1")),
+            ])),
+            ("331162", .map([
+                ("config", .map([("language", .string("french")), ("oslist", .string("windows"))])),
+                ("manifests", .map([("public", .map([("gid", .string("99")), ("size", .string("1500000000"))]))])),
+            ])),
             ("branches", .map([("public", .map([("buildid", .string("454676"))]))])),
         ])),
     ])),
@@ -134,6 +143,10 @@ private let rdr2: [(String, Node)] = [
                 ("config", .map([("oslist", .string("windows")), ("osarch", .string("64"))])),
                 ("manifests", .map([("public", .map([("gid", .string("123")), ("size", .int32(1000))]))])),
             ])),
+            ("1174189", .map([
+                ("dlcappid", .string("1174190")),
+                ("manifests", .map([("public", .map([("gid", .string("5")), ("size", .int32(10))]))])),
+            ])),
             ("branches", .map([("public", .map([("buildid", .int32(98765))]))])),
         ])),
     ])),
@@ -151,7 +164,11 @@ struct AppInfoTests {
         #expect(cars.publicBuildID == 454676)
         #expect(cars.depots == [
             Depot(id: 228988, oslist: ["windows"], osarch: nil, publicManifest: 5_000_000_000_000_000_001, maxSize: nil),
+            Depot(id: 228990, oslist: ["windows"], osarch: nil, publicManifest: nil, maxSize: nil,
+                fromApp: 228980, shared: true),
             Depot(id: 331161, oslist: ["windows"], osarch: nil, publicManifest: 7406377411530442766, maxSize: 1170843402),
+            Depot(id: 331162, oslist: ["windows"], osarch: nil, publicManifest: 99, maxSize: 1500000000,
+                language: "french"),
         ])
         #expect(cars.windowsLaunch?.executable == "Cars.exe")
 
@@ -159,7 +176,10 @@ struct AppInfoTests {
         #expect(red.publicBuildID == 98765)
         // The macOS entry comes first; the Windows one is the entry with no oslist.
         #expect(red.windowsLaunch == LaunchEntry(executable: "PlayRDR2.exe", arguments: "-vulkan", oslist: []))
-        #expect(red.depots == [Depot(id: 1174181, oslist: ["windows"], osarch: "64", publicManifest: 123, maxSize: 1000)])
+        #expect(red.depots == [
+            Depot(id: 1174181, oslist: ["windows"], osarch: "64", publicManifest: 123, maxSize: 1000),
+            Depot(id: 1174189, oslist: [], osarch: nil, publicManifest: 5, maxSize: 10, dlcAppID: 1174190),
+        ])
     }
 
     @Test func parsesV29Fixture() throws {
@@ -209,7 +229,12 @@ struct AppInfoTests {
         #expect(cars.name == "Cars")
         #expect(cars.windowsLaunch?.executable == "Cars.exe")
         #expect(cars.publicBuildID == 454676)
-        #expect(!cars.depots.filter { $0.oslist.contains("windows") }.isEmpty)
+        // Cars ships one depot per language and borrows the DirectX redist from another app.
+        let english = try #require(cars.depots.first { $0.id == 331162 })
+        #expect(english.language == "english")
+        #expect(cars.depots.filter { $0.language != nil }.count > 5)
+        let redist = try #require(cars.depots.first { $0.id == 228990 })
+        #expect(redist.shared && redist.fromApp == 228980)
         #expect(apps[1174180]?.windowsLaunch?.executable == "PlayRDR2.exe")
     }
 }
