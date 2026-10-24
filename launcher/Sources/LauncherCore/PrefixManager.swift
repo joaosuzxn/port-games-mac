@@ -63,8 +63,9 @@ public struct PrefixManager: Sendable {
     /// recipe applied.
     ///
     /// Runs under the start lock (`prefixes/.create.lock`): no Wine of a launcher game starts while a prefix
-    /// is being created (bug #11: creating one while another Wine starts hangs). The wait is bounded by
-    /// the wineboot timeout. `GameLauncher` holds the same lock itself until the game is up.
+    /// is being created (bug #11: creating one while another Wine starts hangs). Behind another game's
+    /// creation the wait can reach ~4 minutes (wineboot timeout plus stopping Wine); the app should show it.
+    /// `GameLauncher` holds the same lock itself until the game is up.
     public func ensurePrefix(appID: UInt32, recipe: Recipe, gameDir: URL) async throws -> URL {
         let lock = try await FileLock.acquire(Self.startLock(paths))
         defer { lock.release() }
