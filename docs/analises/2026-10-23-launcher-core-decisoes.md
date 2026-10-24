@@ -63,7 +63,9 @@ e desinstalar + instalar mantendo saves.
 do cabeçalho PE e `nameTable` sem teto; `account.config` ilegível tratado como vazio; item do Keychain corrompido
 trava o `load()`; arquivo de estado corrompido vira "não instalado".
 
-**Processos e concorrência:** SIGKILL com janela de reuso de PID; `run()` cancelado só manda SIGTERM;
+**Processos e concorrência:** SIGKILL com janela de reuso de PID; `run()` cancelado só manda SIGTERM (com um
+`wine` que o ignore, a criação de prefixo ainda pode prender o lock de início); espera de até ~4 min atrás da
+criação de outro prefixo, sem aviso (o app #9 deve mostrar);
 DepotDownloader fica órfão se o lançador morrer; extração da engine e `codesign` ocupam uma thread do pool (envolver
 para o app #9); corrida de reentrância entre `validSession` e `waitForApproval`.
 
